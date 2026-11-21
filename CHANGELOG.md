@@ -4,6 +4,8 @@ All notable changes to liteChat. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-21
+
 ### Fixed
 
 - Reasoning now has its own panel instead of reading like part of the answer. While the model thinks, the panel shows the newest reasoning in a fixed-height box with a spinner. Once the answer starts, it folds into a "Reasoning" row that you can open.
@@ -53,7 +55,8 @@ First public release.
 - Notice when a model stops at its length limit, with how to fix it.
 - Binaries for Linux, macOS, Windows and FreeBSD; multi-arch Docker image.
 
-[Unreleased]: https://github.com/erinoooo/litechat/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/erinoooo/litechat/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/erinoooo/litechat/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/erinoooo/litechat/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/erinoooo/litechat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/erinoooo/litechat/releases/tag/v0.1.0
