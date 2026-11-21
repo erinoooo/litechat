@@ -118,27 +118,63 @@ export function renderBlocks(src: string): Block[] {
   return out
 }
 
-export type Segment = { kind: 'think' | 'text'; text: string; open: boolean }
+export type ToolBlock = { name: string; server: string; status: string; args: unknown; result: string }
+export type Segment = { kind: 'think' | 'text' | 'tool'; text: string; open: boolean; tool?: ToolBlock }
 
-/** Split a reply into <think> sections and normal text. */
+const unescape = (s: string) =>
+  s.replace(/&(amp|lt|gt|quot|#39|#34);/g, (_, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", '#34': '"' })[e as string]!)
+
+const OPEN = /<think>|<tool name="([^"]*)" server="([^"]*)" status="([^"]*)">\n/g
+
+/** Split a reply into <think> sections, <tool> calls and normal text. */
 export function segments(src: string): Segment[] {
   const out: Segment[] = []
-  let rest = src
-  for (;;) {
-    const start = rest.indexOf('<think>')
-    if (start < 0) break
-    if (rest.slice(0, start).trim()) out.push({ kind: 'text', text: rest.slice(0, start), open: false })
-    const after = rest.slice(start + 7)
-    const end = after.indexOf('</think>')
-    if (end < 0) {
-      out.push({ kind: 'think', text: after, open: true })
-      return out
-    }
-    out.push({ kind: 'think', text: after.slice(0, end), open: false })
-    rest = after.slice(end + 8)
+  const text = (t: string) => {
+    if (t.trim()) out.push({ kind: 'text', text: t, open: false })
   }
-  if (rest.trim()) out.push({ kind: 'text', text: rest, open: false })
+  let pos = 0
+  OPEN.lastIndex = 0
+  for (let m: RegExpExecArray | null; (m = OPEN.exec(src)); ) {
+    text(src.slice(pos, m.index))
+    const bodyStart = m.index + m[0].length
+    if (m[0] === '<think>') {
+      const end = src.indexOf('</think>', bodyStart)
+      if (end < 0) {
+        out.push({ kind: 'think', text: src.slice(bodyStart), open: true })
+        return out
+      }
+      out.push({ kind: 'think', text: src.slice(bodyStart, end), open: false })
+      pos = end + 8
+    } else {
+      const end = src.indexOf('\n</tool>', bodyStart)
+      if (end < 0) return out // incomplete block (shouldn't happen: blocks arrive whole)
+      let args: unknown = {}
+      let result = ''
+      try {
+        const p = JSON.parse(src.slice(bodyStart, end))
+        args = p.args
+        result = p.result ?? ''
+      } catch {}
+      out.push({
+        kind: 'tool',
+        text: '',
+        open: false,
+        tool: { name: unescape(m[1]), server: unescape(m[2]), status: m[3], args, result },
+      })
+      pos = end + 8
+    }
+    OPEN.lastIndex = pos
+  }
+  text(src.slice(pos))
   return out
+}
+
+/** Plain text of a reply, for copying: no thinking, tool calls summarized. */
+export function plainText(src: string) {
+  return segments(src)
+    .map((s) => (s.kind === 'text' ? s.text.trim() : s.kind === 'tool' ? `[used ${s.tool!.name}]` : ''))
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 export const rendererVersion = () => version

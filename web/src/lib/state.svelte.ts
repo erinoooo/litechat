@@ -1,10 +1,27 @@
-import { api, streamMessage, setUnauthorizedHandler, type Chat, type Message, type Model, type Preset, type Provider } from './api'
+import {
+  api,
+  attachStream,
+  streamMessage,
+  setUnauthorizedHandler,
+  type Chat,
+  type MCPServer,
+  type MCPStatus,
+  type Message,
+  type Model,
+  type Preset,
+  type Provider,
+  type StreamHandlers,
+  type ToolInfo,
+} from './api'
 
 export type Prefs = {
   default_model?: string
   default_system_prompt?: string
   auto_title?: boolean
   send_on_enter?: boolean
+  tools_enabled?: boolean
+  semantic_search?: boolean
+  embedding_model?: string
 }
 
 /** Everything the UI knows about one open conversation. */
@@ -12,8 +29,11 @@ export class ChatState {
   chat = $state<Chat>() as Chat
   messages = $state<Message[]>([])
   streamingId = $state<string | null>(null)
+  activeTool = $state<ToolInfo | null>(null)
   error = $state<string | null>(null)
   controller: AbortController | null = null
+  /** a stream reader is currently attached to the running reply */
+  reading = false
 
   constructor(chat: Chat, messages: Message[]) {
     this.chat = chat
@@ -80,7 +100,10 @@ class App {
 
   sidebarOpen = $state(typeof window !== 'undefined' && window.innerWidth >= 900)
   settingsOpen = $state(false)
-  settingsTab = $state<'providers' | 'presets' | 'general'>('providers')
+  settingsTab = $state<'providers' | 'tools' | 'presets' | 'data' | 'general'>('providers')
+  mcpServers = $state<MCPServer[]>([])
+  mcpStatus = $state<MCPStatus>({})
+  stdioAllowed = $state(false)
   searchOpen = $state(false)
   toast = $state<{ text: string; kind: 'info' | 'error' } | null>(null)
 
@@ -90,6 +113,13 @@ class App {
   constructor() {
     setUnauthorizedHandler(() => (this.auth = 'login'))
     window.addEventListener('popstate', () => this.syncRoute())
+    // phones drop connections when backgrounded; pick the reply back up
+    const resume = () => {
+      const cs = this.current
+      if (document.visibilityState === 'visible' && cs?.streamingId && !cs.reading) this.attach(cs)
+    }
+    document.addEventListener('visibilitychange', resume)
+    window.addEventListener('online', resume)
   }
 
   // ---------- boot / auth ----------
@@ -105,16 +135,19 @@ class App {
   }
 
   async loadAll() {
-    const [chats, providers, presets, prefs] = await Promise.all([
+    const [chats, providers, presets, prefs, mcp] = await Promise.all([
       api.chats(),
       api.providers(),
       api.presets(),
       api.settings(),
+      api.mcpServers(),
     ])
     this.chats = chats
     this.providers = providers
     this.presets = presets
     this.prefs = prefs as Prefs
+    this.mcpServers = mcp.servers
+    this.stdioAllowed = mcp.stdio_allowed
     this.draftSystem = this.prefs.default_system_prompt ?? ''
     await this.syncRoute()
     this.loadModels()
@@ -132,7 +165,9 @@ class App {
       this.modelErrors = r.errors
       if (!this.draftModel || !this.models.some((m) => m.key === this.draftModel)) {
         const def = this.prefs.default_model
-        this.draftModel = def && this.models.some((m) => m.key === def) ? def : (this.models[0]?.key ?? '')
+        // embedding models can't chat; don't pick one by default
+        const chatty = this.models.find((m) => !/embed|rerank|bge-|e5-|minilm/i.test(m.id))
+        this.draftModel = def && this.models.some((m) => m.key === def) ? def : ((chatty ?? this.models[0])?.key ?? '')
       }
     } catch {
       /* surfaced in settings */
@@ -173,17 +208,22 @@ class App {
       if (cached.streamingId) return
     }
     try {
-      const { chat, messages } = await api.chat(id)
-      const cs = this.cache.get(id)
+      const { chat, messages, generating } = await api.chat(id)
+      let cs = this.cache.get(id)
       if (cs) {
         if (!cs.streamingId) {
           cs.chat = chat
           cs.messages = messages
         }
       } else {
-        this.cache.set(id, new ChatState(chat, messages))
+        cs = new ChatState(chat, messages)
+        this.cache.set(id, cs)
       }
-      if (this.routeChatId() === id) this.current = this.cache.get(id)!
+      if (generating && !cs.reading) {
+        cs.streamingId = generating
+        this.attach(cs)
+      }
+      if (this.routeChatId() === id) this.current = cs
     } catch {
       this.notify('Chat not found', 'error')
       this.newChat()
@@ -233,6 +273,14 @@ class App {
     await this.run(cs, { parent_id: parent, content, images, model })
   }
 
+  get toolsAvailable() {
+    return this.mcpServers.some((s) => s.enabled)
+  }
+
+  get toolsOn() {
+    return this.toolsAvailable && (this.prefs.tools_enabled ?? true)
+  }
+
   /** Send an edited version of a user message as a new branch. */
   async edit(msg: Message, content: string) {
     const cs = this.current
@@ -257,15 +305,100 @@ class App {
     api.updateChat(cs.chat.id, { leaf_id: cs.chat.leaf_id }).catch(() => {})
   }
 
-  stop() {
-    this.current?.controller?.abort()
+  /** Stop the reply on the server; the stream then ends with `done`. */
+  async stop() {
+    const cs = this.current
+    if (!cs?.streamingId) return
+    try {
+      await api.stop(cs.chat.id)
+    } catch {
+      cs.controller?.abort()
+    }
+  }
+
+  /** Handlers that apply stream events to `asst`, batching deltas per frame. */
+  private handlers(cs: ChatState, getAsst: () => Message | undefined): StreamHandlers & { flush: () => void } {
+    let pending = ''
+    let raf = 0
+    const flush = () => {
+      cancelAnimationFrame(raf)
+      raf = 0
+      const a = getAsst()
+      if (pending && a) a.content += pending
+      pending = ''
+    }
+    return {
+      flush,
+      sync: (d) => {
+        const a = getAsst()
+        if (a) a.content = d.content
+        pending = ''
+        cs.activeTool = d.tool
+      },
+      delta: (t) => {
+        pending += t
+        if (t.includes('<tool ')) cs.activeTool = null
+        if (!raf) raf = requestAnimationFrame(flush)
+      },
+      tool_start: (t) => {
+        flush()
+        cs.activeTool = t
+      },
+      done: (d) => {
+        flush()
+        const a = getAsst()
+        if (a) {
+          a.content = d.content
+          if (d.error) a.error = d.error
+        }
+        cs.streamingId = null
+        cs.activeTool = null
+        this.bumpChat(cs.chat.id)
+      },
+      title: (title) => {
+        cs.chat.title = title
+        const c = this.chats.find((c) => c.id === cs.chat.id)
+        if (c) c.title = title
+      },
+    }
+  }
+
+  /** Follow a reply that's already running on the server (after reload, tab switch, dropped connection). */
+  async attach(cs: ChatState, tries = 0) {
+    if (cs.reading || !cs.streamingId) return
+    cs.reading = true
+    const ctrl = new AbortController()
+    cs.controller = ctrl
+    const id = cs.streamingId
+    const h = this.handlers(cs, () => cs.byId(id))
+    let finished: boolean | null = false
+    try {
+      finished = await attachStream(cs.chat.id, h, ctrl.signal)
+    } catch {
+      finished = false
+    } finally {
+      h.flush()
+      cs.reading = false
+      cs.controller = null
+    }
+    if (finished === null || (!finished && tries >= 3)) {
+      // it ended while we weren't looking: load the saved result
+      cs.streamingId = null
+      cs.activeTool = null
+      const { chat, messages } = await api.chat(cs.chat.id).catch(() => ({ chat: cs.chat, messages: cs.messages }))
+      cs.chat = chat
+      cs.messages = messages
+    } else if (!finished && !ctrl.signal.aborted) {
+      setTimeout(() => this.attach(cs, tries + 1), 500 * (tries + 1))
+    }
   }
 
   private async run(
     cs: ChatState,
-    body: { parent_id: string; content?: string; images?: string[]; model: string; regenerate?: boolean },
+    body: { parent_id: string; content?: string; images?: string[]; model: string; regenerate?: boolean; tools?: boolean },
   ) {
     if (cs.streamingId) return
+    body.tools = this.toolsOn
     cs.error = null
     const now = Date.now()
     const tmpUser: Message | null = body.regenerate
@@ -296,24 +429,17 @@ class App {
     cs.streamingId = tmpAsst.id
     const ctrl = new AbortController()
     cs.controller = ctrl
+    cs.reading = true
+    const asst = cs.messages[cs.messages.length - 1] // the reactive proxy
+    const h = this.handlers(cs, () => asst)
 
-    // batch deltas into one update per frame
-    let pending = ''
-    let raf = 0
-    let asst = cs.messages[cs.messages.length - 1] // the reactive proxy
-    const flush = () => {
-      raf = 0
-      if (pending) {
-        asst.content += pending
-        pending = ''
-      }
-    }
-
+    let finished = false
     try {
-      await streamMessage(
+      finished = await streamMessage(
         cs.chat.id,
         body,
         {
+          ...h,
           meta: ({ user, assistant }) => {
             if (tmpUser) {
               const u = cs.messages.find((m) => m.id === tmpUser.id)
@@ -323,42 +449,25 @@ class App {
             cs.chat.leaf_id = assistant.id
             cs.streamingId = assistant.id
           },
-          delta: (t) => {
-            pending += t
-            if (!raf) raf = requestAnimationFrame(flush)
-          },
-          done: (d) => {
-            cancelAnimationFrame(raf)
-            asst.content = d.content
-            if (d.error) asst.error = d.error
-            cs.streamingId = null
-            this.bumpChat(cs.chat.id)
-          },
-          title: (title) => {
-            cs.chat.title = title
-            const c = this.chats.find((c) => c.id === cs.chat.id)
-            if (c) c.title = title
-          },
         },
         ctrl.signal,
       )
     } catch (e) {
-      cancelAnimationFrame(raf)
-      flush()
-      if ((e as Error).name !== 'AbortError') {
-        // request rejected before streaming: drop the optimistic messages
-        if (asst.id.startsWith('tmp-')) {
-          cs.messages = cs.messages.filter((m) => m.id !== asst.id && m.id !== tmpUser?.id)
-          cs.chat.leaf_id = cs.latestLeaf(body.parent_id)
-          this.notify((e as Error).message, 'error')
-        } else {
-          asst.error = (e as Error).message
-        }
+      h.flush()
+      if ((e as Error).name !== 'AbortError' && asst.id.startsWith('tmp-')) {
+        // rejected before it started: drop the optimistic messages
+        cs.messages = cs.messages.filter((m) => m.id !== asst.id && m.id !== tmpUser?.id)
+        cs.chat.leaf_id = cs.latestLeaf(body.parent_id)
+        cs.streamingId = null
+        this.notify((e as Error).message, 'error')
       }
     } finally {
-      cs.streamingId = null
+      h.flush()
+      cs.reading = false
       cs.controller = null
     }
+    // connection dropped mid-reply: the server is still generating
+    if (!finished && cs.streamingId && !cs.streamingId.startsWith('tmp-')) this.attach(cs)
   }
 
   private bumpChat(id: string) {
@@ -429,7 +538,35 @@ class App {
   }
 
   modelName(key: string) {
-    return this.models.find((m) => m.key === key)?.name ?? key.split('/').slice(1).join('/')
+    const m = this.models.find((m) => m.key === key)
+    if (m) return m.name
+    const i = key.indexOf('/')
+    // keys are "<provider>/<model>"; imported chats may carry a bare model name
+    return i > 0 && /^[0-9a-f]{20,}$/.test(key.slice(0, i)) ? key.slice(i + 1) : key
+  }
+
+  async loadMCP(refresh = false) {
+    const r = await api.mcpServers()
+    this.mcpServers = r.servers
+    this.stdioAllowed = r.stdio_allowed
+    this.mcpStatus = await api.mcpStatus(refresh)
+  }
+
+  async exportChatMarkdown(id: string) {
+    const { chat, messages } = await api.chat(id)
+    const cs = new ChatState(chat, messages)
+    const lines = [`# ${chat.title}`, '']
+    if (chat.system_prompt) lines.push('> **System:** ' + chat.system_prompt.replace(/\n/g, '\n> '), '')
+    for (const m of cs.path) {
+      lines.push(m.role === 'user' ? '## You' : `## Assistant${m.model ? ` (${this.modelName(m.model)})` : ''}`, '')
+      lines.push(m.content.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim(), '')
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = (chat.title.replace(/[^\w\- ]+/g, '').trim() || 'chat') + '.md'
+    a.click()
+    URL.revokeObjectURL(a.href)
   }
 }
 

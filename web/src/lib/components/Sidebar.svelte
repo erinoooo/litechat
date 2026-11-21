@@ -108,6 +108,7 @@
               <div class="menu animate-pop absolute right-0 top-full z-30 mt-1 w-44">
                 <button class="menu-item" onclick={() => { menuFor = null; app.togglePin(c.id) }}><Icon name="pin" size={15} /> {c.pinned ? 'Unpin' : 'Pin'}</button>
                 <button class="menu-item" onclick={() => startRename(c)}><Icon name="edit" size={15} /> Rename</button>
+                <button class="menu-item" onclick={() => { menuFor = null; app.exportChatMarkdown(c.id) }}><Icon name="download" size={15} /> Download .md</button>
                 <button class="menu-item !text-danger" onclick={() => remove(c)}><Icon name="trash" size={15} /> Delete</button>
               </div>
             {/if}

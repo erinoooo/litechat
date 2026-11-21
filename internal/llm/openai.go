@@ -13,17 +13,14 @@ import (
 type openAI struct{ base, key string }
 
 func (o *openAI) do(ctx context.Context, method, path string, body any, client *http.Client) (*http.Response, error) {
-	var rd *bytes.Reader
+	var buf []byte
 	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if buf, err = json.Marshal(body); err != nil {
 			return nil, err
 		}
-		rd = bytes.NewReader(b)
-	} else {
-		rd = bytes.NewReader(nil)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, o.base+path, rd)
+	req, err := http.NewRequestWithContext(ctx, method, o.base+path, bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +66,49 @@ func (o *openAI) ListModels(ctx context.Context) ([]Model, error) {
 	return out, nil
 }
 
-func (o *openAI) Stream(ctx context.Context, r Request, onDelta func(string)) error {
+func (o *openAI) Embed(ctx context.Context, model string, inputs []string) ([][]float32, error) {
+	resp, err := o.do(ctx, "POST", "/embeddings", map[string]any{"model": model, "input": inputs}, embedHTTP)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Data []struct {
+			Index     int       `json:"index"`
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	out := make([][]float32, len(inputs))
+	for i, d := range body.Data {
+		idx := d.Index
+		if idx < 0 || idx >= len(out) {
+			idx = i
+		}
+		out[idx] = d.Embedding
+	}
+	for _, v := range out {
+		if len(v) == 0 {
+			return nil, &providerErr{"embeddings response was missing vectors"}
+		}
+	}
+	return out, nil
+}
+
+type oaFunc struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type oaToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function oaFunc `json:"function"`
+}
+
+func (o *openAI) Stream(ctx context.Context, r Request, onDelta func(string)) (Result, error) {
 	type part struct {
 		Type     string `json:"type"`
 		Text     string `json:"text,omitempty"`
@@ -82,34 +121,54 @@ func (o *openAI) Stream(ctx context.Context, r Request, onDelta func(string)) er
 		msgs = append(msgs, map[string]any{"role": "system", "content": r.System})
 	}
 	for _, m := range r.Messages {
-		if len(m.Images) == 0 {
+		switch {
+		case m.Role == "tool":
+			msgs = append(msgs, map[string]any{"role": "tool", "tool_call_id": m.ToolCallID, "content": m.Content})
+		case len(m.ToolCalls) > 0:
+			calls := make([]oaToolCall, len(m.ToolCalls))
+			for i, c := range m.ToolCalls {
+				calls[i] = oaToolCall{ID: c.ID, Type: "function", Function: oaFunc{Name: c.Name, Arguments: argsOrEmpty(c.Args)}}
+			}
+			msg := map[string]any{"role": "assistant", "tool_calls": calls, "content": nil}
+			if m.Content != "" {
+				msg["content"] = m.Content
+			}
+			msgs = append(msgs, msg)
+		case len(m.Images) == 0:
 			msgs = append(msgs, map[string]any{"role": m.Role, "content": m.Content})
-			continue
+		default:
+			parts := []part{{Type: "text", Text: m.Content}}
+			for _, img := range m.Images {
+				p := part{Type: "image_url"}
+				p.ImageURL = &struct {
+					URL string `json:"url"`
+				}{URL: img}
+				parts = append(parts, p)
+			}
+			msgs = append(msgs, map[string]any{"role": m.Role, "content": parts})
 		}
-		parts := []part{{Type: "text", Text: m.Content}}
-		for _, img := range m.Images {
-			p := part{Type: "image_url"}
-			p.ImageURL = &struct {
-				URL string `json:"url"`
-			}{URL: img}
-			parts = append(parts, p)
-		}
-		msgs = append(msgs, map[string]any{"role": m.Role, "content": parts})
 	}
 
-	resp, err := o.do(ctx, "POST", "/chat/completions", map[string]any{
-		"model":    r.Model,
-		"messages": msgs,
-		"stream":   true,
-	}, streamHTTP)
+	body := map[string]any{"model": r.Model, "messages": msgs, "stream": true}
+	if len(r.Tools) > 0 {
+		tools := make([]map[string]any, len(r.Tools))
+		for i, t := range r.Tools {
+			tools[i] = map[string]any{"type": "function", "function": map[string]any{
+				"name": t.Name, "description": t.Description, "parameters": schemaOrEmpty(t.Schema),
+			}}
+		}
+		body["tools"] = tools
+	}
+
+	resp, err := o.do(ctx, "POST", "/chat/completions", body, streamHTTP)
 	if err != nil {
-		return err
+		return Result{}, err
 	}
 	defer resp.Body.Close()
 
 	tw := &thinkWrapper{emit: onDelta}
-	defer tw.close()
-	return sseData(resp.Body, func(_, data string) (bool, error) {
+	calls := map[int]*ToolCall{}
+	err = sseData(resp.Body, func(_, data string) (bool, error) {
 		if data == "[DONE]" {
 			return true, nil
 		}
@@ -119,6 +178,11 @@ func (o *openAI) Stream(ctx context.Context, r Request, onDelta func(string)) er
 					Content          string `json:"content"`
 					Reasoning        string `json:"reasoning"`
 					ReasoningContent string `json:"reasoning_content"`
+					ToolCalls        []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Function oaFunc `json:"function"`
+					} `json:"tool_calls"`
 				} `json:"delta"`
 			} `json:"choices"`
 			Error *struct {
@@ -135,11 +199,39 @@ func (o *openAI) Stream(ctx context.Context, r Request, onDelta func(string)) er
 			tw.reasoning(c.Delta.ReasoningContent)
 			tw.reasoning(c.Delta.Reasoning)
 			tw.text(c.Delta.Content)
+			for _, tc := range c.Delta.ToolCalls {
+				call := calls[tc.Index]
+				if call == nil {
+					call = &ToolCall{}
+					calls[tc.Index] = call
+				}
+				if tc.ID != "" {
+					call.ID = tc.ID
+				}
+				call.Name += tc.Function.Name
+				call.Args += tc.Function.Arguments
+			}
 		}
 		return false, nil
 	})
+	tw.close()
+
+	var res Result
+	idx := make([]int, 0, len(calls))
+	for i := range calls {
+		idx = append(idx, i)
+	}
+	sort.Ints(idx)
+	for _, i := range idx {
+		c := calls[i]
+		if c.Name == "" {
+			continue
+		}
+		if c.ID == "" {
+			c.ID = "call_" + c.Name
+		}
+		c.Args = argsOrEmpty(c.Args)
+		res.ToolCalls = append(res.ToolCalls, *c)
+	}
+	return res, err
 }
-
-type providerErr struct{ msg string }
-
-func (e *providerErr) Error() string { return e.msg }

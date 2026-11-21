@@ -3,6 +3,8 @@
   import { app, type ChatState } from '../state.svelte'
   import Markdown from './Markdown.svelte'
   import Icon from './Icon.svelte'
+  import ToolCall from './ToolCall.svelte'
+  import { plainText } from '../markdown'
 
   let { msg, cs, last }: { msg: Message; cs: ChatState; last: boolean } = $props()
 
@@ -55,8 +57,7 @@
   }
 
   function copy() {
-    const text = msg.content.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim()
-    navigator.clipboard.writeText(text)
+    navigator.clipboard.writeText(msg.role === 'user' ? msg.content : plainText(msg.content))
     copied = true
     setTimeout(() => (copied = false), 1400)
   }
@@ -127,10 +128,13 @@
   </div>
 {:else}
   <div class="group animate-fade-up">
-    {#if !msg.content && streaming}
+    {#if !msg.content && streaming && !cs.activeTool}
       <div class="typing" aria-label="Generating"><span></span><span></span><span></span></div>
-    {:else}
-      <Markdown content={msg.content} {streaming} />
+    {:else if msg.content}
+      <Markdown content={msg.content} streaming={streaming && !cs.activeTool} />
+    {/if}
+    {#if streaming && cs.activeTool}
+      <ToolCall tool={cs.activeTool} running />
     {/if}
 
     {#if msg.error}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { api } from '../api'
   import { app } from '../state.svelte'
   import Icon from './Icon.svelte'
 
@@ -6,13 +7,14 @@
 
   let text = $state('')
   let images = $state<string[]>([])
-  let files = $state<{ name: string; content: string }[]>([])
+  let files = $state<{ name: string; content: string; loading?: boolean }[]>([])
   let dragging = $state(false)
   let el = $state<HTMLTextAreaElement>()
   let fileInput = $state<HTMLInputElement>()
 
   const streaming = $derived(!!app.current?.streamingId)
-  const canSend = $derived((text.trim() || images.length || files.length) && !streaming)
+  const extracting = $derived(files.some((f) => f.loading))
+  const canSend = $derived((text.trim() || images.length || files.length) && !streaming && !extracting)
 
   export function focus() {
     el?.focus()
@@ -84,8 +86,27 @@
           continue
         }
         files.push({ name: f.name, content: await f.text() })
+      } else if (/\.(pdf|docx)$/i.test(f.name) || f.type === 'application/pdf') {
+        if (f.size > 25_000_000) {
+          app.notify(`${f.name} is too large (max 25 MB)`, 'error')
+          continue
+        }
+        // extracted on the server, so the browser never loads a PDF library
+        const entry = { name: f.name, content: '', loading: true }
+        files.push(entry)
+        api
+          .extract(f)
+          .then((r) => {
+            const i = files.findIndex((x) => x.name === f.name && x.loading)
+            if (i >= 0) files[i] = { name: f.name, content: r.text }
+            if (r.truncated) app.notify(`${f.name} was long; only the first part is included`)
+          })
+          .catch((e) => {
+            files = files.filter((x) => !(x.name === f.name && x.loading))
+            app.notify((e as Error).message, 'error')
+          })
       } else {
-        app.notify(`${f.name}: only images and text files are supported`, 'error')
+        app.notify(`${f.name}: supported files are images, PDF, DOCX and text`, 'error')
       }
     }
   }
@@ -126,10 +147,14 @@
         {/each}
         {#each files as f, i}
           <div class="group relative flex h-16 max-w-[200px] items-center gap-2 rounded-lg border border-line bg-sunk px-3">
-            <Icon name="paperclip" size={16} class="text-muted" />
+            {#if f.loading}
+              <span class="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-muted border-t-transparent"></span>
+            {:else}
+              <Icon name="file" size={16} class="text-muted" />
+            {/if}
             <div class="min-w-0">
               <div class="truncate text-sm font-medium">{f.name}</div>
-              <div class="text-xs text-faint">{(f.content.length / 1024).toFixed(1)} KB</div>
+              <div class="text-xs text-faint">{f.loading ? 'Reading…' : `${(f.content.length / 1024).toFixed(1)} KB of text`}</div>
             </div>
             <button
               class="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-fg text-bg opacity-0 shadow transition-opacity group-hover:opacity-100 max-md:opacity-100"
@@ -153,10 +178,20 @@
 
     <div class="flex items-center justify-between px-2.5 pb-2.5 pt-1">
       <div class="flex items-center">
-        <button class="btn-icon" onclick={() => fileInput?.click()} aria-label="Attach files" title="Attach images or text files">
+        <button class="btn-icon" onclick={() => fileInput?.click()} aria-label="Attach files" title="Attach images, PDFs, DOCX or text files">
           <Icon name="paperclip" />
         </button>
         <input bind:this={fileInput} type="file" multiple class="hidden" onchange={(e) => { const t = e.currentTarget; if (t.files) addFiles(t.files); t.value = '' }} />
+        {#if app.toolsAvailable}
+          <button
+            class="ml-0.5 flex h-[30px] items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium transition-colors {app.toolsOn ? 'bg-accent-soft text-fg' : 'text-muted hover:bg-hover'}"
+            onclick={() => app.savePrefs({ tools_enabled: !app.toolsOn })}
+            title={app.toolsOn ? 'Tools are on: the model can call your MCP servers' : 'Tools are off'}
+            aria-pressed={app.toolsOn}
+          >
+            <Icon name="tool" size={15} class={app.toolsOn ? 'text-accent' : ''} /> Tools
+          </button>
+        {/if}
       </div>
       {#if streaming}
         <button class="grid h-8 w-8 place-items-center rounded-full bg-fg text-bg transition-transform active:scale-95" onclick={() => app.stop()} aria-label="Stop generating" title="Stop">

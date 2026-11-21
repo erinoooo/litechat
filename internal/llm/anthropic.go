@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sort"
 )
 
 // anthropic speaks the native Claude Messages API.
@@ -64,50 +65,93 @@ func (a *anthropic) ListModels(ctx context.Context) ([]Model, error) {
 	return out, nil
 }
 
-func (a *anthropic) Stream(ctx context.Context, r Request, onDelta func(string)) error {
-	msgs := make([]map[string]any, 0, len(r.Messages))
-	for _, m := range r.Messages {
+// toAnthropic converts the generic history to Claude content blocks.
+// Consecutive tool results are merged into a single user turn.
+func toAnthropic(in []Message) []map[string]any {
+	var out []map[string]any
+	for _, m := range in {
 		var blocks []map[string]any
-		for _, img := range m.Images {
-			mt, data, ok := splitDataURL(img)
-			if !ok {
-				continue
+		role := m.Role
+		switch {
+		case m.Role == "tool":
+			role = "user"
+			blocks = []map[string]any{{"type": "tool_result", "tool_use_id": m.ToolCallID, "content": m.Content}}
+			if n := len(out); n > 0 && out[n-1]["role"] == "user" {
+				if prev, ok := out[n-1]["content"].([]map[string]any); ok && len(prev) > 0 && prev[0]["type"] == "tool_result" {
+					out[n-1]["content"] = append(prev, blocks...)
+					continue
+				}
 			}
-			blocks = append(blocks, map[string]any{
-				"type":   "image",
-				"source": map[string]any{"type": "base64", "media_type": mt, "data": data},
-			})
+		case m.Role == "assistant":
+			if m.Content != "" {
+				blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
+			}
+			for _, c := range m.ToolCalls {
+				blocks = append(blocks, map[string]any{"type": "tool_use", "id": c.ID, "name": c.Name, "input": json.RawMessage(argsOrEmpty(c.Args))})
+			}
+		default:
+			for _, img := range m.Images {
+				mt, data, ok := splitDataURL(img)
+				if !ok {
+					continue
+				}
+				blocks = append(blocks, map[string]any{
+					"type":   "image",
+					"source": map[string]any{"type": "base64", "media_type": mt, "data": data},
+				})
+			}
+			if m.Content != "" {
+				blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
+			}
 		}
-		if m.Content != "" || len(blocks) == 0 {
-			blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
+		if len(blocks) == 0 {
+			blocks = []map[string]any{{"type": "text", "text": "…"}}
 		}
-		msgs = append(msgs, map[string]any{"role": m.Role, "content": blocks})
+		out = append(out, map[string]any{"role": role, "content": blocks})
 	}
+	return out
+}
+
+func (a *anthropic) Stream(ctx context.Context, r Request, onDelta func(string)) (Result, error) {
 	body := map[string]any{
 		"model":      r.Model,
 		"max_tokens": 16000,
-		"messages":   msgs,
+		"messages":   toAnthropic(r.Messages),
 		"stream":     true,
 	}
 	if r.System != "" {
 		body["system"] = r.System
 	}
+	if len(r.Tools) > 0 {
+		tools := make([]map[string]any, len(r.Tools))
+		for i, t := range r.Tools {
+			tools[i] = map[string]any{"name": t.Name, "description": t.Description, "input_schema": schemaOrEmpty(t.Schema)}
+		}
+		body["tools"] = tools
+	}
 
 	resp, err := a.do(ctx, "POST", "/v1/messages", body, streamHTTP)
 	if err != nil {
-		return err
+		return Result{}, err
 	}
 	defer resp.Body.Close()
 
 	tw := &thinkWrapper{emit: onDelta}
-	defer tw.close()
-	return sseData(resp.Body, func(event, data string) (bool, error) {
+	calls := map[int]*ToolCall{}
+	err = sseData(resp.Body, func(event, data string) (bool, error) {
 		var ev struct {
-			Type  string `json:"type"`
+			Type         string `json:"type"`
+			Index        int    `json:"index"`
+			ContentBlock struct {
+				Type string `json:"type"`
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"content_block"`
 			Delta struct {
-				Type     string `json:"type"`
-				Text     string `json:"text"`
-				Thinking string `json:"thinking"`
+				Type        string `json:"type"`
+				Text        string `json:"text"`
+				Thinking    string `json:"thinking"`
+				PartialJSON string `json:"partial_json"`
 			} `json:"delta"`
 			Error *struct {
 				Message string `json:"message"`
@@ -117,12 +161,20 @@ func (a *anthropic) Stream(ctx context.Context, r Request, onDelta func(string))
 			return false, nil
 		}
 		switch ev.Type {
+		case "content_block_start":
+			if ev.ContentBlock.Type == "tool_use" {
+				calls[ev.Index] = &ToolCall{ID: ev.ContentBlock.ID, Name: ev.ContentBlock.Name}
+			}
 		case "content_block_delta":
 			switch ev.Delta.Type {
 			case "text_delta":
 				tw.text(ev.Delta.Text)
 			case "thinking_delta":
 				tw.reasoning(ev.Delta.Thinking)
+			case "input_json_delta":
+				if c := calls[ev.Index]; c != nil {
+					c.Args += ev.Delta.PartialJSON
+				}
 			}
 		case "message_stop":
 			return true, nil
@@ -133,4 +185,18 @@ func (a *anthropic) Stream(ctx context.Context, r Request, onDelta func(string))
 		}
 		return false, nil
 	})
+	tw.close()
+
+	var res Result
+	idx := make([]int, 0, len(calls))
+	for i := range calls {
+		idx = append(idx, i)
+	}
+	sort.Ints(idx)
+	for _, i := range idx {
+		c := calls[i]
+		c.Args = argsOrEmpty(c.Args)
+		res.ToolCalls = append(res.ToolCalls, *c)
+	}
+	return res, err
 }

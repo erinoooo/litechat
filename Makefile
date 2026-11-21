@@ -1,7 +1,7 @@
 GO ?= go
 BIN := litechat
 
-.PHONY: all web build dev run clean
+.PHONY: all web build dev run test clean
 
 all: build
 
@@ -16,6 +16,10 @@ build: web
 dev:
 	@mkdir -p web/dist && [ -f web/dist/index.html ] || echo '<!doctype html>' > web/dist/index.html
 	@trap 'kill 0' EXIT; $(GO) run . & (cd web && npm run dev)
+
+test:
+	$(GO) vet ./... && $(GO) test ./...
+	cd web && npx svelte-check --tsconfig ./tsconfig.json
 
 run: build
 	./$(BIN)

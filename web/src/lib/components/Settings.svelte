@@ -2,6 +2,8 @@
   import { api, type Preset, type Provider } from '../api'
   import { app } from '../state.svelte'
   import Icon from './Icon.svelte'
+  import SettingsTools from './SettingsTools.svelte'
+  import SettingsData from './SettingsData.svelte'
 
   const templates = [
     { name: 'Ollama', kind: 'openai', base_url: 'http://localhost:11434/v1', key: false },
@@ -92,7 +94,9 @@
 
   const tabs = [
     { id: 'providers', label: 'Providers', icon: 'sparkle' },
+    { id: 'tools', label: 'Tools', icon: 'tool' },
     { id: 'presets', label: 'Prompts', icon: 'message' },
+    { id: 'data', label: 'Search & data', icon: 'database' },
     { id: 'general', label: 'General', icon: 'settings' },
   ] as const
 
@@ -106,7 +110,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="fixed inset-0 z-50 grid place-items-center bg-black/40 p-3 backdrop-blur-[2px] sm:p-6" onclick={(e) => e.target === e.currentTarget && (app.settingsOpen = false)}>
   <div class="animate-pop flex h-[min(640px,92vh)] w-full max-w-3xl overflow-hidden rounded-2xl border border-line bg-elev shadow-pop max-sm:flex-col">
-    <nav class="flex shrink-0 gap-1 border-line bg-sunk p-3 sm:w-48 sm:flex-col sm:border-r max-sm:border-b">
+    <nav class="flex shrink-0 gap-1 border-line bg-sunk p-3 sm:w-48 sm:flex-col sm:border-r max-sm:overflow-x-auto max-sm:border-b">
       <h2 class="mb-2 px-2.5 pt-1 text-base font-semibold max-sm:hidden">Settings</h2>
       {#each tabs as t}
         <button class="menu-item max-sm:!w-auto" data-active={app.settingsTab === t.id} onclick={() => { app.settingsTab = t.id; form = null; preset = null }}>
@@ -188,6 +192,12 @@
             {/each}
           </div>
         {/if}
+
+      {:else if app.settingsTab === 'tools'}
+        <SettingsTools />
+
+      {:else if app.settingsTab === 'data'}
+        <SettingsData />
 
       {:else if app.settingsTab === 'presets'}
         {#if preset}

@@ -158,7 +158,7 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 
 	out := struct {
-		Models []modelOut         `json:"models"`
+		Models []modelOut        `json:"models"`
 		Errors map[string]string `json:"errors"`
 	}{Models: []modelOut{}, Errors: map[string]string{}}
 	for i, p := range ps {
@@ -238,7 +238,11 @@ func (s *Server) getChat(w http.ResponseWriter, r *http.Request) {
 		dbErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"chat": c, "messages": ms})
+	generating := ""
+	if g := s.hub.forChat(c.ID); g != nil {
+		generating = g.msgID
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"chat": c, "messages": ms, "generating": generating})
 }
 
 func (s *Server) updateChat(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +264,9 @@ func (s *Server) updateChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteChat(w http.ResponseWriter, r *http.Request) {
+	if g := s.hub.forChat(r.PathValue("id")); g != nil {
+		g.cancel()
+	}
 	if err := s.db.DeleteChat(r.PathValue("id")); err != nil {
 		dbErr(w, err)
 		return
@@ -315,8 +322,10 @@ func (s *Server) deletePreset(w http.ResponseWriter, r *http.Request) {
 // ---------- user preferences (opaque JSON owned by the UI) ----------
 
 type prefs struct {
-	DefaultModel string `json:"default_model"`
-	AutoTitle    *bool  `json:"auto_title"`
+	DefaultModel   string `json:"default_model"`
+	AutoTitle      *bool  `json:"auto_title"`
+	SemanticSearch bool   `json:"semantic_search"`
+	EmbeddingModel string `json:"embedding_model"` // "<provider_id>/<model>"
 }
 
 func (s *Server) loadPrefs() (json.RawMessage, prefs) {
@@ -345,5 +354,6 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		dbErr(w, err)
 		return
 	}
+	s.indexer.kick() // embedding settings may have changed
 	writeJSON(w, http.StatusOK, v)
 }

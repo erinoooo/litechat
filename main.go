@@ -55,9 +55,13 @@ func main() {
 		log.Fatal(err)
 	}
 
+	app := server.New(d, static, server.Options{
+		AllowStdioMCP: os.Getenv("LITECHAT_MCP_STDIO") == "1",
+	})
+	defer app.Close()
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           server.New(d, static),
+		Handler:           app,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {

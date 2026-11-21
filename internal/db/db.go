@@ -95,7 +95,11 @@ func Open(path string) (*DB, error) {
 	if _, err := sdb.Exec(schema); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	return &DB{sdb}, nil
+	d := &DB{sdb}
+	if err := d.migrateExtra(); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return d, nil
 }
 
 func NewID() string {
@@ -309,16 +313,16 @@ func (d *DB) DeleteChat(id string) error {
 // ---------- messages ----------
 
 type Message struct {
-	ID        string `json:"id"`
-	ChatID    string `json:"chat_id"`
-	ParentID  string `json:"parent_id"`
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	Images    string `json:"-"`
+	ID        string   `json:"id"`
+	ChatID    string   `json:"chat_id"`
+	ParentID  string   `json:"parent_id"`
+	Role      string   `json:"role"`
+	Content   string   `json:"content"`
+	Images    string   `json:"-"`
 	ImageList []string `json:"images"`
-	Model     string `json:"model"`
-	Error     string `json:"error,omitempty"`
-	CreatedAt int64  `json:"created_at"`
+	Model     string   `json:"model"`
+	Error     string   `json:"error,omitempty"`
+	CreatedAt int64    `json:"created_at"`
 }
 
 const msgCols = `id,chat_id,parent_id,role,content,images,model,error,created_at`

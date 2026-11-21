@@ -34,7 +34,29 @@ export type Message = {
 }
 
 export type Preset = { id: string; name: string; prompt: string; created_at: number }
-export type SearchHit = { chat_id: string; title: string; snippet: string }
+export type SearchHit = { chat_id: string; title: string; snippet: string; score?: number }
+
+export type MCPServer = {
+  id: string
+  name: string
+  transport: 'http' | 'stdio'
+  url: string
+  headers: Record<string, string>
+  command: string
+  args: string[]
+  env: Record<string, string>
+  enabled: boolean
+}
+export type MCPTool = { name: string; description: string }
+export type MCPStatus = Record<string, { tools: MCPTool[]; error?: string }>
+export type SemanticStatus = {
+  enabled: boolean
+  model: string
+  indexed?: number
+  total?: number
+  running: boolean
+  error: string
+}
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -81,7 +103,7 @@ export const api = {
 
   chats: () => req<Chat[]>('GET', '/chats'),
   createChat: (c: Partial<Chat>) => req<Chat>('POST', '/chats', c),
-  chat: (id: string) => req<{ chat: Chat; messages: Message[] }>('GET', `/chats/${id}`),
+  chat: (id: string) => req<{ chat: Chat; messages: Message[]; generating: string }>('GET', `/chats/${id}`),
   updateChat: (id: string, fields: Partial<Chat>) => req<Chat>('PATCH', `/chats/${id}`, fields),
   deleteChat: (id: string) => req('DELETE', `/chats/${id}`),
 
@@ -93,28 +115,47 @@ export const api = {
   saveSettings: (s: Record<string, unknown>) => req('PUT', '/settings', s),
 
   search: (q: string, signal?: AbortSignal) => req<SearchHit[]>('GET', '/search?q=' + encodeURIComponent(q), undefined, signal),
+  semanticSearch: (q: string, signal?: AbortSignal) =>
+    req<SearchHit[]>('GET', '/semantic/search?q=' + encodeURIComponent(q), undefined, signal),
+  semanticStatus: () => req<SemanticStatus>('GET', '/semantic/status'),
+  reindex: () => req('POST', '/semantic/reindex'),
+
+  stop: (chatId: string) => req('POST', `/chats/${chatId}/stop`),
+
+  mcpServers: () => req<{ servers: MCPServer[]; stdio_allowed: boolean }>('GET', '/mcp'),
+  saveMCP: (s: Partial<MCPServer>, id?: string) => req<MCPServer>(id ? 'PUT' : 'POST', id ? `/mcp/${id}` : '/mcp', s),
+  deleteMCP: (id: string) => req('DELETE', `/mcp/${id}`),
+  mcpStatus: (refresh = false) => req<MCPStatus>('GET', '/mcp/status' + (refresh ? '?refresh=1' : '')),
+
+  extract: (file: File) => upload<{ name: string; text: string; truncated: boolean }>('/extract', file),
+  importChats: async (file: File) => {
+    const res = await fetch('/api/import', { method: 'POST', headers: { 'X-LiteChat': '1', 'Content-Type': 'application/json' }, body: file })
+    if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({}))).error ?? res.statusText)
+    return (await res.json()) as { imported: number; format: string }
+  },
 }
 
+async function upload<T>(path: string, file: File): Promise<T> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch('/api' + path, { method: 'POST', headers: { 'X-LiteChat': '1' }, body: fd })
+  if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({}))).error ?? res.statusText)
+  return res.json()
+}
+
+export type ToolInfo = { name: string; server: string; args?: unknown }
+
 export type StreamHandlers = {
-  meta: (d: { user: Message; assistant: Message }) => void
+  meta?: (d: { user: Message; assistant: Message }) => void
+  sync?: (d: { message_id: string; content: string; tool: ToolInfo | null }) => void
   delta: (text: string) => void
+  tool_start?: (t: ToolInfo) => void
   done: (d: { content: string; error?: string }) => void
   title: (title: string) => void
 }
 
-/** POST a message and consume the server-sent event stream. */
-export async function streamMessage(
-  chatId: string,
-  body: { parent_id: string; content?: string; images?: string[]; model: string; regenerate?: boolean },
-  h: StreamHandlers,
-  signal: AbortSignal,
-) {
-  const res = await fetch(`/api/chats/${chatId}/messages`, {
-    method: 'POST',
-    headers: { 'X-LiteChat': '1', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
-  })
+/** Read an SSE response body, dispatching events to handlers. Returns true if `done` arrived. */
+async function consume(res: Response, h: StreamHandlers): Promise<boolean> {
   if (!res.ok || !res.body) {
     let msg = res.statusText
     try {
@@ -124,6 +165,7 @@ export async function streamMessage(
   }
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
   let buf = ''
+  let finished = false
   for (;;) {
     const { value, done } = await reader.read()
     if (done) break
@@ -140,10 +182,38 @@ export async function streamMessage(
       }
       if (!data) continue
       const d = JSON.parse(data)
-      if (event === 'meta') h.meta(d)
+      if (event === 'meta') h.meta?.(d)
+      else if (event === 'sync') h.sync?.(d)
       else if (event === 'delta') h.delta(d.t)
-      else if (event === 'done') h.done(d)
-      else if (event === 'title') h.title(d.title)
+      else if (event === 'tool_start') h.tool_start?.(d)
+      else if (event === 'done') {
+        finished = true
+        h.done(d)
+      } else if (event === 'title') h.title(d.title)
     }
   }
+  return finished
+}
+
+/** POST a message and follow the reply as it streams. */
+export async function streamMessage(
+  chatId: string,
+  body: { parent_id: string; content?: string; images?: string[]; model: string; regenerate?: boolean; tools?: boolean },
+  h: StreamHandlers,
+  signal: AbortSignal,
+) {
+  const res = await fetch(`/api/chats/${chatId}/messages`, {
+    method: 'POST',
+    headers: { 'X-LiteChat': '1', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+  return consume(res, h)
+}
+
+/** Re-attach to a reply that's still generating. Resolves false if nothing is running. */
+export async function attachStream(chatId: string, h: StreamHandlers, signal: AbortSignal) {
+  const res = await fetch(`/api/chats/${chatId}/stream`, { headers: { 'X-LiteChat': '1' }, signal })
+  if (res.status === 204) return null
+  return consume(res, h)
 }

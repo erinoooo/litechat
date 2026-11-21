@@ -1,11 +1,14 @@
 // Package llm talks to model providers. Every provider streams plain text
 // deltas; model "thinking" is wrapped in <think>…</think> so the UI has a
-// single format to render, whatever the provider.
+// single format to render, whatever the provider. Tool calls requested by
+// the model are returned in Result for the caller to execute.
 package llm
 
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,9 +17,23 @@ import (
 )
 
 type Message struct {
-	Role    string   // user | assistant
-	Content string
-	Images  []string // data URLs
+	Role       string // user | assistant | tool
+	Content    string
+	Images     []string   // data URLs (user)
+	ToolCalls  []ToolCall // assistant: tools it asked for
+	ToolCallID string     // tool: which call this answers
+}
+
+type ToolCall struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Args string `json:"args"` // raw JSON object
+}
+
+type Tool struct {
+	Name        string
+	Description string
+	Schema      json.RawMessage // JSON Schema for the arguments
 }
 
 type Model struct {
@@ -28,14 +45,26 @@ type Request struct {
 	Model    string
 	System   string
 	Messages []Message
+	Tools    []Tool
+}
+
+type Result struct {
+	ToolCalls []ToolCall
 }
 
 type Client interface {
 	ListModels(ctx context.Context) ([]Model, error)
 	// Stream calls onDelta for every chunk of text. It returns when the
 	// response is complete, the context is cancelled, or an error occurs.
-	Stream(ctx context.Context, req Request, onDelta func(string)) error
+	Stream(ctx context.Context, req Request, onDelta func(string)) (Result, error)
 }
+
+// Embedder is implemented by providers with an embeddings endpoint.
+type Embedder interface {
+	Embed(ctx context.Context, model string, inputs []string) ([][]float32, error)
+}
+
+var ErrNoEmbeddings = errors.New("this provider has no embeddings API")
 
 func New(kind, baseURL, apiKey string) (Client, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
@@ -54,7 +83,7 @@ func New(kind, baseURL, apiKey string) (Client, error) {
 // Complete is a convenience wrapper that collects a full streamed response.
 func Complete(ctx context.Context, c Client, req Request) (string, error) {
 	var sb strings.Builder
-	err := c.Stream(ctx, req, func(s string) { sb.WriteString(s) })
+	_, err := c.Stream(ctx, req, func(s string) { sb.WriteString(s) })
 	return sb.String(), err
 }
 
@@ -67,6 +96,8 @@ var streamHTTP = &http.Client{Transport: &http.Transport{
 }}
 
 var shortHTTP = &http.Client{Timeout: 15 * time.Second}
+
+var embedHTTP = &http.Client{Timeout: 2 * time.Minute}
 
 func readError(resp *http.Response) error {
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -102,8 +133,8 @@ func sseData(r io.Reader, fn func(event, data string) (stop bool, err error)) er
 // thinkWrapper turns separate reasoning/text deltas into one text stream
 // with the reasoning wrapped in <think> tags.
 type thinkWrapper struct {
-	emit     func(string)
-	inThink  bool
+	emit    func(string)
+	inThink bool
 }
 
 func (t *thinkWrapper) reasoning(s string) {
@@ -145,3 +176,21 @@ func splitDataURL(u string) (mediaType, data string, ok bool) {
 	mediaType = strings.TrimSuffix(meta, ";base64")
 	return mediaType, u[comma+1:], true
 }
+
+func schemaOrEmpty(s json.RawMessage) json.RawMessage {
+	if len(s) == 0 || string(s) == "null" {
+		return json.RawMessage(`{"type":"object","properties":{}}`)
+	}
+	return s
+}
+
+func argsOrEmpty(a string) string {
+	if strings.TrimSpace(a) == "" {
+		return "{}"
+	}
+	return a
+}
+
+type providerErr struct{ msg string }
+
+func (e *providerErr) Error() string { return e.msg }

@@ -12,12 +12,16 @@ import (
 	"time"
 
 	"litechat/internal/db"
+	"litechat/internal/mcp"
 )
 
 type Server struct {
-	db     *db.DB
-	static fs.FS
-	mux    *http.ServeMux
+	db      *db.DB
+	static  fs.FS
+	mux     *http.ServeMux
+	hub     *hub
+	mcp     *mcp.Manager
+	indexer *indexer
 
 	modelsMu    sync.Mutex
 	modelsCache map[string]modelsEntry // provider id -> cached models
@@ -26,14 +30,21 @@ type Server struct {
 	loginFail map[string][]time.Time // ip -> recent failures
 }
 
-func New(d *db.DB, static fs.FS) *Server {
+type Options struct {
+	AllowStdioMCP bool // let MCP servers be launched as local processes
+}
+
+func New(d *db.DB, static fs.FS, opt Options) *Server {
 	s := &Server{
 		db:          d,
 		static:      static,
 		mux:         http.NewServeMux(),
+		hub:         newHub(),
+		mcp:         mcp.NewManager(opt.AllowStdioMCP),
 		modelsCache: map[string]modelsEntry{},
 		loginFail:   map[string][]time.Time{},
 	}
+	s.indexer = newIndexer(s)
 	s.routes()
 	go func() {
 		for range time.Tick(time.Hour) {
@@ -67,6 +78,22 @@ func (s *Server) routes() {
 	a("PATCH /api/chats/{id}", s.updateChat)
 	a("DELETE /api/chats/{id}", s.deleteChat)
 	a("POST /api/chats/{id}/messages", s.sendMessage)
+	a("GET /api/chats/{id}/stream", s.attach)
+	a("POST /api/chats/{id}/stop", s.stopGeneration)
+
+	a("POST /api/extract", s.extractFile)
+	a("GET /api/export", s.exportAll)
+	a("POST /api/import", s.importChats)
+
+	a("GET /api/mcp", s.listMCP)
+	a("POST /api/mcp", s.saveMCP)
+	a("PUT /api/mcp/{id}", s.saveMCP)
+	a("DELETE /api/mcp/{id}", s.deleteMCP)
+	a("GET /api/mcp/status", s.mcpStatus)
+
+	a("GET /api/semantic/status", s.semanticStatus)
+	a("GET /api/semantic/search", s.semanticSearch)
+	a("POST /api/semantic/reindex", s.semanticReindex)
 
 	a("GET /api/presets", s.listPresets)
 	a("POST /api/presets", s.savePreset)
@@ -82,6 +109,16 @@ func (s *Server) routes() {
 		httpErr(w, http.StatusNotFound, "not found")
 	})
 	m.Handle("/", s.staticHandler())
+}
+
+// Close stops background work: running replies and MCP sessions.
+func (s *Server) Close() {
+	s.hub.mu.Lock()
+	for _, g := range s.hub.byMsg {
+		g.cancel()
+	}
+	s.hub.mu.Unlock()
+	s.mcp.CloseAll()
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

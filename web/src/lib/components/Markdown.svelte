@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { renderBlocks, segments, onRendererChange } from '../markdown'
+  import ToolCall from './ToolCall.svelte'
 
   let { content, streaming = false }: { content: string; streaming?: boolean } = $props()
 
@@ -13,7 +14,7 @@
     void tick
     return segments(content)
   })
-  const rendered = $derived(segs.map((s) => ({ ...s, blocks: renderBlocks(s.text) })))
+  const rendered = $derived(segs.map((s) => ({ ...s, blocks: s.kind === 'tool' ? [] : renderBlocks(s.text) })))
 
   function onclick(e: MouseEvent) {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-copy]')
@@ -36,6 +37,8 @@
           <div class="contents">{@html b.html}</div>
         {/each}
       </details>
+    {:else if seg.kind === 'tool'}
+      <ToolCall tool={seg.tool!} />
     {:else}
       {#each seg.blocks as b (b.key)}
         <div class="contents">{@html b.html}</div>
