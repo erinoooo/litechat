@@ -151,3 +151,22 @@ func TestStreamReportsTruncation(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeThink(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"plain answer", "plain answer"},
+		{"<think>a</think>b", "<think>a</think>b"},
+		{"reasoning</think>answer", "<think>reasoning</think>answer"},
+		{"\n\n reasoning</think>\n\nanswer", "\n\n <think>reasoning</think>\n\nanswer"},
+		{"still thinking", "still thinking"}, // nothing to go on until </think> arrives
+		// a tool round: each round's reasoning lacks its opening tag
+		{"r1</think>a1<tool name=\"t\" server=\"s\" status=\"ok\">\n{}\n</tool>\n\nr2</think>a2",
+			"<think>r1</think>a1<tool name=\"t\" server=\"s\" status=\"ok\">\n{}\n</tool>\n\n<think>r2</think>a2"},
+		{"<think>a</think>b<think>c</think>d", "<think>a</think>b<think>c</think>d"},
+	}
+	for _, c := range cases {
+		if got := NormalizeThink(c.in); got != c.want {
+			t.Errorf("NormalizeThink(%q)\n got %q\nwant %q", c.in, got, c.want)
+		}
+	}
+}

@@ -37,7 +37,9 @@ When liteChat runs in Docker, it also checks the Docker host (`host.docker.inter
 
 ## Reasoning models and length limits
 
-Reasoning ("thinking") models stream their reasoning first; liteChat shows it in a collapsed **Show reasoning** section above the answer.
+Reasoning ("thinking") models stream their reasoning first. liteChat shows it in a **Thinking** panel while the model works, then folds it into a **Reasoning** row above the answer.
+
+liteChat recognizes reasoning in three forms: sent separately by the server (`reasoning_content` or `reasoning`, as Ollama, llama.cpp and vLLM do when they parse it out), wrapped in `<think>…</think>` in the text, or only closed with `</think>`. The last form comes from models such as GLM, whose chat template opens `<think>` in the prompt, served without a reasoning parser. For those, the first reply's reasoning shows as text until the `</think>` arrives; after that liteChat knows the model and opens the panel from the first token (until it restarts). Starting the server with its reasoning parser on avoids this entirely: vLLM's `--reasoning-parser`, or llama.cpp's `--jinja` with the default `--reasoning-format`.
 
 If a model stops because it hit its length limit, the reply says so. This is common with reasoning models on Ollama, whose default context window is small: the model can spend all of it reasoning and never reach the answer. Raise it with the `OLLAMA_CONTEXT_LENGTH` environment variable when starting Ollama, for example `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`.
 

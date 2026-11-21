@@ -130,7 +130,15 @@ const OPEN = /<think>|<tool name="([^"]*)" server="([^"]*)" status="([^"]*)">\n/
 /** Split a reply into <think> sections, <tool> calls and normal text. */
 export function segments(src: string): Segment[] {
   const out: Segment[] = []
+  // Plain text, except that a "</think>" with no opening tag closes reasoning
+  // that began at the start of this stretch: some chat templates (GLM's) put
+  // "<think>" in the prompt, so the model only writes "reasoning</think>answer".
   const text = (t: string) => {
+    let close: number
+    while ((close = t.indexOf('</think>')) >= 0) {
+      out.push({ kind: 'think', text: t.slice(0, close), open: false })
+      t = t.slice(close + 8)
+    }
     if (t.trim()) out.push({ kind: 'text', text: t, open: false })
   }
   let pos = 0

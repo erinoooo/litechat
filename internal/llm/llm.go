@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -197,3 +198,48 @@ func argsOrEmpty(a string) string {
 type providerErr struct{ msg string }
 
 func (e *providerErr) Error() string { return e.msg }
+
+var thinkTokRe = regexp.MustCompile(`<think>|</think>|\n</tool>`)
+
+// NormalizeThink adds the opening <think> that some models never write.
+// Chat templates such as GLM's end the prompt with "<think>", so the model's
+// own output starts mid-reasoning and only closes it: "reasoning</think>answer".
+// Servers that parse reasoning out (llama.cpp's reasoning parser, vLLM's
+// --reasoning-parser) send it separately; the rest pass it through like this.
+// Each unmatched </think> gets a <think> at the start of its stretch of text:
+// the start of the reply, or the end of the previous </think> or tool block.
+func NormalizeThink(s string) string {
+	var inserts []int
+	open, segStart := false, 0
+	for _, m := range thinkTokRe.FindAllStringIndex(s, -1) {
+		switch s[m[0]:m[1]] {
+		case "<think>":
+			open = true
+		case "</think>":
+			if !open {
+				start := segStart
+				for start < m[0] && strings.ContainsRune(" \t\r\n", rune(s[start])) {
+					start++
+				}
+				inserts = append(inserts, start)
+			}
+			open, segStart = false, m[1]
+		default: // end of a tool block
+			if !open {
+				segStart = m[1]
+			}
+		}
+	}
+	if len(inserts) == 0 {
+		return s
+	}
+	var b strings.Builder
+	prev := 0
+	for _, at := range inserts {
+		b.WriteString(s[prev:at])
+		b.WriteString("<think>")
+		prev = at
+	}
+	b.WriteString(s[prev:])
+	return b.String()
+}

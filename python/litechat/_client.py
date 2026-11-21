@@ -19,6 +19,28 @@ from ._errors import APIError, AuthError, LiteChatError, ReplyError
 
 _THINK = re.compile(r"<think>(.*?)(?:</think>|$)", re.S)
 _TOOL = re.compile(r'<tool name="([^"]*)" server="([^"]*)" status="([^"]*)">(.*?)</tool>', re.S)
+_THINK_TOKENS = re.compile(r"<think>|</think>|\n</tool>")
+
+
+def _normalize_think(s: str) -> str:
+    """Add the <think> that models such as GLM never write (their chat
+    template opens it in the prompt), as the server does for new replies."""
+    out, prev, open_, seg = [], 0, False, 0
+    for m in _THINK_TOKENS.finditer(s):
+        tok = m.group()
+        if tok == "<think>":
+            open_ = True
+        elif tok == "</think>":
+            if not open_:
+                start = seg
+                while start < m.start() and s[start] in " \t\r\n":
+                    start += 1
+                out += [s[prev:start], "<think>"]
+                prev = start
+            open_, seg = False, m.end()
+        elif not open_:
+            seg = m.end()
+    return "".join(out) + s[prev:] if out else s
 
 Image = Union[str, bytes, "os.PathLike[str]"]
 
@@ -57,11 +79,11 @@ class Reply:
     @property
     def text(self) -> str:
         """The answer, without reasoning or tool blocks."""
-        return _TOOL.sub("", _THINK.sub("", self.content)).strip()
+        return _TOOL.sub("", _THINK.sub("", _normalize_think(self.content))).strip()
 
     @property
     def reasoning(self) -> str:
-        return "\n\n".join(m.strip() for m in _THINK.findall(self.content)).strip()
+        return "\n\n".join(m.strip() for m in _THINK.findall(_normalize_think(self.content))).strip()
 
     @property
     def tool_calls(self) -> List[ToolCall]:

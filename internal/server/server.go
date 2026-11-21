@@ -29,6 +29,32 @@ type Server struct {
 
 	loginMu   sync.Mutex
 	loginFail map[string][]time.Time // ip -> recent failures
+
+	thinkMu    sync.Mutex
+	opensThink map[string]bool // models whose chat template opens <think> in the prompt
+}
+
+// templateOpensThink reports whether this model's replies were seen to start
+// inside reasoning: they close a </think> they never opened (GLM and others
+// whose chat template ends the prompt with "<think>"). Learned per model
+// while liteChat runs, so the reasoning panel opens from the first token.
+func (s *Server) templateOpensThink(model string) bool {
+	s.thinkMu.Lock()
+	defer s.thinkMu.Unlock()
+	return s.opensThink[model]
+}
+
+func (s *Server) setTemplateOpensThink(model string, v bool) {
+	s.thinkMu.Lock()
+	defer s.thinkMu.Unlock()
+	if s.opensThink == nil {
+		s.opensThink = map[string]bool{}
+	}
+	if v {
+		s.opensThink[model] = true
+	} else {
+		delete(s.opensThink, model)
+	}
 }
 
 type Options struct {

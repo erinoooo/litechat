@@ -17,8 +17,10 @@ import litechat
 
 
 class FakeOpenAI(BaseHTTPRequestHandler):
-    """Streams "<reasoning> Echo: <last message>" for model "echo";
-    fails for model "broken"."""
+    """Streams "<reasoning> Echo: <last message>" for model "echo"; fails for
+    model "broken". Model "glm" writes reasoning in the content and closes a
+    </think> it never opened, like GLM served without a reasoning parser
+    (unless the message contains "no thinking")."""
 
     def log_message(self, *args):
         pass
@@ -33,7 +35,7 @@ class FakeOpenAI(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.endswith("/models"):
-            self._json(200, {"data": [{"id": "echo"}, {"id": "broken"}]})
+            self._json(200, {"data": [{"id": "echo"}, {"id": "broken"}, {"id": "glm"}]})
         else:
             self._json(404, {})
 
@@ -49,7 +51,12 @@ class FakeOpenAI(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
-        chunks = [{"reasoning_content": "thinking it over"}, {"content": "Echo: "}, {"content": last}]
+        if req["model"] == "glm":
+            chunks = [{"content": "Echo: "}, {"content": last}]
+            if "no thinking" not in last:
+                chunks = [{"content": "glm reasons"}, {"content": "</think>"}, {"content": "\n\n"}] + chunks
+        else:
+            chunks = [{"reasoning_content": "thinking it over"}, {"content": "Echo: "}, {"content": last}]
         for delta in chunks:
             self.wfile.write(b"data: " + json.dumps({"choices": [{"delta": delta}]}).encode() + b"\n\n")
             self.wfile.flush()
@@ -86,7 +93,7 @@ class LiteChatTest(unittest.TestCase):
 
     def test_models_resolve_by_id(self):
         ids = {m.id for m in self.client.models()}
-        self.assertEqual(ids, {"echo", "broken"})
+        self.assertEqual(ids, {"echo", "broken", "glm"})
         key = self.client.resolve_model("echo")
         self.assertTrue(key.endswith("/echo"))
         self.assertEqual(self.client.resolve_model(key), key)
@@ -117,6 +124,27 @@ class LiteChatTest(unittest.TestCase):
         self.assertIn(chat.id, [c.id for c in self.client.chats()])
         chat.delete()
         self.assertNotIn(chat.id, [c.id for c in self.client.chats()])
+
+    def test_reasoning_without_opening_tag(self):
+        chat = self.client.new_chat(model="glm")
+        first = chat.send("one")
+        self.assertEqual(first.reasoning, "glm reasons")
+        self.assertEqual(first.text, "Echo: one")
+        self.assertTrue(first.content.startswith("<think>glm reasons</think>"))  # stored fixed
+
+        # liteChat has now learned this model starts inside reasoning, so the
+        # next reply streams with the tag already open
+        stream = chat.stream("two")
+        pieces = list(stream)
+        self.assertEqual(pieces[0], "<think>")
+        self.assertEqual(stream.reply.reasoning, "glm reasons")
+        self.assertEqual(stream.reply.text, "Echo: two")
+        self.assertEqual(stream.reply.content.count("<think>"), 1)
+
+        # a reply with no reasoning: the tag added up front is taken back out
+        plain = chat.send("no thinking please")
+        self.assertEqual(plain.content, "Echo: no thinking please")
+        self.assertEqual(chat.messages()[-1].content, "Echo: no thinking please")
 
     def test_images(self):
         png = b"\x89PNG\r\n\x1a\n" + b"\0" * 16
@@ -159,6 +187,11 @@ class ReplyParsingTest(unittest.TestCase):
         self.assertEqual(r.reasoning, "plan")
         self.assertEqual(r.text, "Looking it up.\n\n\n\nIt is noon.")
         self.assertEqual(r.tool_calls, [litechat.ToolCall("get_time", "clock", True, {"now": "12:00"})])
+
+    def test_missing_opening_tag(self):
+        r = litechat.Reply("pondering</think>\n\nThe answer.")
+        self.assertEqual(r.reasoning, "pondering")
+        self.assertEqual(r.text, "The answer.")
 
     def test_unfinished_think(self):
         self.assertEqual(litechat.Reply("<think>still going").text, "")

@@ -192,12 +192,32 @@ func (s *Server) generate(ctx context.Context, g *generation, chat db.Chat, clie
 	req := llm.Request{Model: modelID, System: chat.SystemPrompt, Messages: history, Tools: llmTools}
 	var streamErr error
 	truncated := false
+	var unopened []int // offsets of <think> tags we added that turned out to wrap no reasoning
 	for round := 0; ; round++ {
 		var roundText strings.Builder
+		first, addedAt := true, -1
 		res, err := client.Stream(ctx, req, func(t string) {
+			// for models known to start inside reasoning, open the tag
+			// ourselves so the reasoning panel shows from the first token
+			if first {
+				first = false
+				if s.templateOpensThink(modelID) && !strings.HasPrefix(strings.TrimLeft(t, " \t\r\n"), "<think>") {
+					addedAt = len(g.text())
+					emit("<think>")
+				}
+			}
 			roundText.WriteString(t)
 			emit(t)
 		})
+		raw := roundText.String()
+		switch {
+		case addedAt >= 0 && err == nil && !res.Truncated && !strings.Contains(raw, "</think>"):
+			// finished without reasoning (thinking turned off?): undo the tag
+			unopened = append(unopened, addedAt)
+			s.setTemplateOpensThink(modelID, false)
+		case addedAt < 0 && llm.NormalizeThink(raw) != raw:
+			s.setTemplateOpensThink(modelID, true)
+		}
 		if err != nil {
 			streamErr = err
 			break
@@ -230,7 +250,13 @@ func (s *Server) generate(ctx context.Context, g *generation, chat db.Chat, clie
 	}
 	close(saveDone)
 
-	content := strings.TrimRight(g.text(), "\n")
+	content := g.text()
+	for i := len(unopened) - 1; i >= 0; i-- {
+		if at := unopened[i]; strings.HasPrefix(content[at:], "<think>") {
+			content = content[:at] + content[at+len("<think>"):]
+		}
+	}
+	content = llm.NormalizeThink(strings.TrimRight(content, "\n"))
 	errText := ""
 	switch {
 	case streamErr != nil && !errors.Is(streamErr, context.Canceled):
@@ -338,7 +364,9 @@ var (
 	toolRe  = regexp.MustCompile(`(?s)<tool name="([^"]*)"[^>]*>\n(.*?)\n</tool>`)
 )
 
-func stripThink(s string) string { return strings.TrimSpace(thinkRe.ReplaceAllString(s, "")) }
+func stripThink(s string) string {
+	return strings.TrimSpace(thinkRe.ReplaceAllString(llm.NormalizeThink(s), ""))
+}
 
 // historyText prepares a stored reply for use as context in later turns:
 // thinking is dropped and tool blocks become short plain-text notes.
