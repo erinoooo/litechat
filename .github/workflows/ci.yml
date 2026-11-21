@@ -49,6 +49,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python: ['3.8', '3.14']
     steps:
@@ -56,10 +57,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: litechat-linux
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
+      # uv, because setup-python has no 3.8 build for current Ubuntu runners
+      - uses: astral-sh/setup-uv@v6
       - name: Test
         run: |
           chmod +x litechat
-          LITECHAT_BINARY=$PWD/litechat PYTHONPATH=python python -W error::ResourceWarning -m unittest discover -s python/tests -v
+          LITECHAT_BINARY=$PWD/litechat PYTHONPATH=python uv run --no-project --python ${{ matrix.python }} \
+            python -W error::ResourceWarning -m unittest discover -s python/tests -v
