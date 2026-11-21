@@ -8,17 +8,22 @@
     tone?: 'default' | 'error'
     /** No chevron and not clickable (e.g. while still running). */
     disabled?: boolean
+    /** Called when the reader opens or closes it. */
+    onToggle?: (open: boolean) => void
     summary: Snippet
     children?: Snippet
   }
-  let { open = $bindable(false), tone = 'default', disabled = false, summary, children }: Props = $props()
+  let { open = $bindable(false), tone = 'default', disabled = false, onToggle, summary, children }: Props = $props()
 </script>
 
 <div class="rounded-md border {tone === 'error' ? 'border-red/40' : 'border-line'}">
   <button
     type="button"
     class="flex h-9 w-full items-center gap-2.5 rounded-md px-3 text-left text-sm transition-colors hover:bg-hover disabled:hover:bg-transparent"
-    onclick={() => (open = !open)}
+    onclick={() => {
+      open = !open
+      onToggle?.(open)
+    }}
     {disabled}
     aria-expanded={open}
   >

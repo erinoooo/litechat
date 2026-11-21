@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte'
   import { renderBlocks, segments, onRendererChange } from '../markdown'
   import ToolCall from './ToolCall.svelte'
+  import Reasoning from './Reasoning.svelte'
 
   let { content, streaming = false }: { content: string; streaming?: boolean } = $props()
 
@@ -31,12 +32,7 @@
 <div class="prose" class:caret={streaming && !segs.some((s) => s.open)} {onclick}>
   {#each rendered as seg, si (si)}
     {#if seg.kind === 'think'}
-      <details class="think" class:live={seg.open && streaming} open={seg.open && streaming}>
-        <summary>{seg.open && streaming ? 'Thinking' : 'Show reasoning'}</summary>
-        {#each seg.blocks as b (b.key)}
-          <div class="contents">{@html b.html}</div>
-        {/each}
-      </details>
+      <Reasoning blocks={seg.blocks} live={seg.open && streaming} />
     {:else if seg.kind === 'tool'}
       <ToolCall tool={seg.tool!} />
     {:else}

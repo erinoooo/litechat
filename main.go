@@ -100,7 +100,7 @@ type config struct {
 func parseConfig(args []string) (config, error) {
 	var c config
 	fs := flag.NewFlagSet("litechat", flag.ContinueOnError)
-	fs.Usage = func() { fmt.Fprintf(fs.Output(), usage, version, defaultDataDir()) }
+	fs.Usage = func() { fmt.Fprintf(os.Stdout, usage, version, defaultDataDir()) }
 	port := fs.String("port", env("LITECHAT_PORT", "3000"), "")
 	host := fs.String("host", env("LITECHAT_HOST", ""), "")
 	addr := fs.String("addr", "", "") // host:port in one; kept for v0.1 scripts

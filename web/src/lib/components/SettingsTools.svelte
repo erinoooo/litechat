@@ -114,7 +114,7 @@
   <PageHeader title={form.id ? `Edit ${form.name}` : form.transport === 'http' ? 'Add a remote server' : 'Add a local server'} />
   <div class="flex max-w-md flex-col gap-4">
     {#if form.transport === 'stdio' && !app.stdioAllowed}
-      <Notice>Local servers run commands on the machine hosting liteChat, so they're off by default. Restart liteChat with LITECHAT_MCP_STDIO=1 to allow them.</Notice>
+      <Notice>Local servers run commands on the machine hosting liteChat, so they're off by default. Restart liteChat with --allow-local-mcp (or LITECHAT_MCP_STDIO=1) to allow them.</Notice>
     {/if}
     <TextField label="Name" bind:value={form.name} placeholder="GitHub" />
     {#if form.transport === 'http'}
@@ -171,7 +171,7 @@
       <ListRow title="Remote server" subtitle="Connect by URL, like a hosted MCP endpoint">
         {#snippet trailing()}<Button size="sm" icon="plus" onclick={() => add('http')}>Add</Button>{/snippet}
       </ListRow>
-      <ListRow title="Local server" subtitle={app.stdioAllowed ? 'Run a command on this machine, like npx or uvx' : 'Needs LITECHAT_MCP_STDIO=1 on the server'}>
+      <ListRow title="Local server" subtitle={app.stdioAllowed ? 'Run a command on this machine, like npx or uvx' : 'Needs liteChat started with --allow-local-mcp'}>
         {#snippet trailing()}<Button size="sm" icon="plus" onclick={() => add('stdio')}>Add</Button>{/snippet}
       </ListRow>
     </List>

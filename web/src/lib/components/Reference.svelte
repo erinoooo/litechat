@@ -117,7 +117,7 @@
 
     <Section title="Feedback">
       <div class="flex flex-col gap-3">
-        <Notice>Local servers are off. Restart with LITECHAT_MCP_STDIO=1 to allow them.</Notice>
+        <Notice>Local servers are off. Restart with --allow-local-mcp to allow them.</Notice>
         <Notice tone="error">The provider returned 429: rate limited.
           {#snippet action()}<Button size="sm" variant="danger">Try again</Button>{/snippet}
         </Notice>

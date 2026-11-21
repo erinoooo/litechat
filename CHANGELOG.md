@@ -4,6 +4,12 @@ All notable changes to liteChat. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Fixed
+
+- Reasoning now has its own panel instead of reading like part of the answer. While the model thinks, the panel shows the newest reasoning in a fixed-height box with a spinner. Once the answer starts, it folds into a "Reasoning" row that you can open.
+- `litechat --help` prints to standard output, so it can be piped.
+- The tools settings name the new `--allow-local-mcp` option.
+
 ## [0.3.0] - 2026-11-21
 
 ### Added

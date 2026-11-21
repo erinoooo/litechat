@@ -227,14 +227,6 @@
 .code-block .copy-btn:hover { background: var(--c-hover); color: var(--c-ink); }
 .code-block pre { margin: 0; padding: 12px; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 20px; tab-size: 2; }
 
-details.think { margin: 0 0 16px; color: var(--c-ink-2); font-size: 13px; line-height: 20px; }
-details.think > summary { cursor: pointer; list-style: none; user-select: none; color: var(--c-ink-3); display: inline-flex; align-items: center; gap: 4px; height: 24px; }
-details.think > summary::-webkit-details-marker { display: none; }
-details.think > summary::before { content: ''; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform 120ms; margin-right: 4px; }
-details.think[open] > summary::before { transform: rotate(45deg); }
-details.think > :not(summary) { padding-left: 14px; }
-details.think.live > summary { animation: blink 1.6s ease-in-out infinite; }
-
 /* streaming caret: a text cursor after the last paragraph or list item */
 .prose.caret > .contents:last-child > p:last-child::after,
 .prose.caret > .contents:last-child > :is(ul, ol):last-child > li:last-child::after {
