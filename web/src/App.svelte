@@ -6,10 +6,16 @@
   import ChatView from './lib/components/ChatView.svelte'
   import Settings from './lib/components/Settings.svelte'
   import Search from './lib/components/Search.svelte'
+  import { Toaster } from './lib/ui'
 
-  onMount(() => app.boot())
+  // /_ui shows the component reference (loaded on demand, not in the main bundle)
+  const reference = location.pathname === '/_ui' ? import('./lib/components/Reference.svelte') : null
 
-  const isMobile = () => window.innerWidth < 900
+  onMount(() => {
+    if (!reference) app.boot()
+  })
+
+  let wide = $state(window.innerWidth >= 900)
 
   function onkeydown(e: KeyboardEvent) {
     if (app.auth !== 'ready') return
@@ -29,21 +35,23 @@
   }
 </script>
 
-<svelte:window {onkeydown} />
+<svelte:window {onkeydown} onresize={() => (wide = window.innerWidth >= 900)} />
 
-{#if app.auth === 'loading'}
+{#if reference}
+  {#await reference then mod}<mod.default />{/await}
+{:else if app.auth === 'loading'}
   <div class="h-full"></div>
 {:else if app.auth !== 'ready'}
   <Login />
 {:else}
   <div class="flex h-full overflow-hidden">
     {#if app.sidebarOpen}
-      {#if isMobile()}
-        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="fixed inset-0 z-30 bg-black/40" onclick={() => (app.sidebarOpen = false)}></div>
-        <div class="fixed inset-y-0 left-0 z-40 animate-[fade-up_0.18s_ease-out]"><Sidebar /></div>
-      {:else}
+      {#if wide}
         <Sidebar />
+      {:else}
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="motion-scrim fixed inset-0 z-30 bg-scrim" onclick={() => (app.sidebarOpen = false)}></div>
+        <div class="fixed inset-y-0 left-0 z-40 shadow-overlay"><Sidebar /></div>
       {/if}
     {/if}
     <main class="flex min-w-0 flex-1"><ChatView /></main>
@@ -53,10 +61,4 @@
   {#if app.searchOpen}<Search />{/if}
 {/if}
 
-{#if app.toast}
-  <div class="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex justify-center px-4">
-    <div class="animate-fade-up pointer-events-auto max-w-md rounded-xl px-4 py-2.5 text-sm shadow-pop {app.toast.kind === 'error' ? 'bg-danger text-white' : 'bg-fg text-bg'}">
-      {app.toast.text}
-    </div>
-  </div>
-{/if}
+<Toaster />

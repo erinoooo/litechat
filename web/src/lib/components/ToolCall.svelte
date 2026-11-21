@@ -1,10 +1,9 @@
 <script lang="ts">
   import type { ToolBlock } from '../markdown'
-  import Icon from './Icon.svelte'
+  import { Disclosure, Icon, Spinner } from '../ui'
 
   let { tool, running = false }: { tool: ToolBlock | { name: string; server: string; args?: unknown }; running?: boolean } = $props()
 
-  let open = $state(false)
   const done = $derived('status' in tool ? tool : null)
   const failed = $derived(done?.status === 'error')
   const argText = $derived.by(() => {
@@ -12,47 +11,37 @@
     if (!a || (typeof a === 'object' && !Object.keys(a).length)) return ''
     return JSON.stringify(a, null, 2)
   })
-  // one-line summary of the arguments for the collapsed header
-  const argSummary = $derived.by(() => {
+  // Shown like a call: search("weather in Ankara")
+  const call = $derived.by(() => {
     const a = tool.args as Record<string, unknown> | undefined
-    if (!a || typeof a !== 'object') return ''
-    const vals = Object.values(a).filter((v) => typeof v === 'string' || typeof v === 'number')
-    return vals.length ? String(vals[0]).slice(0, 80) : ''
+    const first = a && typeof a === 'object' ? Object.values(a).find((v) => typeof v === 'string' || typeof v === 'number') : undefined
+    const s = first === undefined ? '' : JSON.stringify(first)
+    return `${tool.name}(${s.length > 60 ? s.slice(0, 59) + '…"' : s})`
   })
 </script>
 
-<div class="my-3 overflow-hidden rounded-xl border text-sm {failed ? 'border-danger/40' : 'border-line'}">
-  <button
-    class="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-hover disabled:hover:bg-transparent"
-    onclick={() => (open = !open)}
-    disabled={running}
-  >
-    <span class="grid h-6 w-6 shrink-0 place-items-center rounded-md {failed ? 'bg-danger/10 text-danger' : 'bg-accent-soft text-accent'}">
+<div class="my-3">
+  <Disclosure tone={failed ? 'error' : 'default'} disabled={running || !done}>
+    {#snippet summary()}
       {#if running}
-        <span class="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+        <Spinner size={14} label="Running tool" />
       {:else}
-        <Icon name={failed ? 'x' : 'tool'} size={14} stroke={2} />
+        <Icon name={failed ? 'x' : 'tool'} size={14} class={failed ? 'text-red' : 'text-pine'} />
       {/if}
-    </span>
-    <span class="min-w-0 flex-1 truncate">
-      <span class="font-medium">{running ? 'Running' : failed ? 'Failed' : 'Used'} {tool.name}</span>
-      {#if argSummary}<span class="text-muted"> · {argSummary}</span>{/if}
-      {#if tool.server}<span class="text-faint"> · {tool.server}</span>{/if}
-    </span>
-    {#if !running}<Icon name="chevronDown" size={15} class="text-faint transition-transform {open ? 'rotate-180' : ''}" />{/if}
-  </button>
-  {#if open && done}
-    <div class="space-y-2 border-t border-line bg-sunk px-3 py-2.5">
+      <code class="min-w-0 flex-1 truncate font-mono text-sm {failed ? 'text-red' : 'text-ink'}">{call}</code>
+      <span class="shrink-0 text-xs text-ink-3 max-sm:hidden">{running ? 'Running' : failed ? 'Failed' : tool.server}</span>
+    {/snippet}
+    {#if done}
       {#if argText}
         <div>
-          <div class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Input</div>
-          <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs">{argText}</pre>
+          <p class="mb-1 text-xs font-medium text-ink-3">Input</p>
+          <pre class="max-h-48 overflow-auto font-mono text-xs whitespace-pre-wrap break-words text-ink-2">{argText}</pre>
         </div>
       {/if}
       <div>
-        <div class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">{failed ? 'Error' : 'Result'}</div>
-        <pre class="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-xs {failed ? 'text-danger' : ''}">{done.result || '(empty)'}</pre>
+        <p class="mb-1 text-xs font-medium text-ink-3">{failed ? 'Error' : `Result from ${done.server}`}</p>
+        <pre class="max-h-72 overflow-auto font-mono text-xs whitespace-pre-wrap break-words {failed ? 'text-red' : 'text-ink-2'}">{done.result || 'No output'}</pre>
       </div>
-    </div>
-  {/if}
+    {/if}
+  </Disclosure>
 </div>

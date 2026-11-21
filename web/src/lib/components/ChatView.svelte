@@ -3,7 +3,7 @@
   import Composer from './Composer.svelte'
   import MessageView from './MessageView.svelte'
   import ModelPicker from './ModelPicker.svelte'
-  import Icon from './Icon.svelte'
+  import { Button, Dialog, IconButton, StatusDot, TextArea } from '../ui'
 
   const cs = $derived(app.current)
   const path = $derived(cs ? cs.path : [])
@@ -13,11 +13,6 @@
   let stick = $state(true)
   let showSystem = $state(false)
   let systemDraft = $state('')
-
-  const greeting = (() => {
-    const h = new Date().getHours()
-    return h < 5 ? 'Up late?' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
-  })()
 
   // Follow the bottom while content grows, unless the user scrolled up.
   $effect(() => {
@@ -54,8 +49,10 @@
     scroller?.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' })
   }
 
+  const systemPrompt = $derived(cs ? cs.chat.system_prompt : app.draftSystem)
+
   function openSystem() {
-    systemDraft = cs ? cs.chat.system_prompt : app.draftSystem
+    systemDraft = systemPrompt
     showSystem = true
   }
 
@@ -63,93 +60,75 @@
     app.setSystemPrompt(systemDraft)
     showSystem = false
   }
-
-  const systemSet = $derived(!!(cs ? cs.chat.system_prompt : app.draftSystem))
 </script>
 
 <div class="flex h-full min-w-0 flex-1 flex-col">
   <header class="flex h-14 shrink-0 items-center gap-1 px-2 sm:px-3">
     {#if !app.sidebarOpen}
-      <button class="btn-icon" onclick={() => (app.sidebarOpen = true)} aria-label="Open sidebar" title="Open sidebar"><Icon name="sidebar" /></button>
-      <button class="btn-icon" onclick={() => app.newChat()} aria-label="New chat" title="New chat"><Icon name="plus" /></button>
+      <IconButton icon="sidebar" label="Show sidebar (Ctrl+\)" onclick={() => (app.sidebarOpen = true)} />
+      <IconButton icon="plus" label="New chat" onclick={() => app.newChat()} />
     {/if}
     <ModelPicker />
-    <div class="ml-auto flex items-center">
-      <button
-        class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors hover:bg-hover {systemSet ? 'text-accent' : 'text-muted'}"
-        onclick={openSystem}
-        title="System prompt"
-      >
-        <Icon name="sliders" size={16} />
-        <span class="max-sm:hidden">{systemSet ? 'System prompt on' : 'System prompt'}</span>
-      </button>
-    </div>
+    <span class="flex-1"></span>
+    <Button variant="ghost" icon="sliders" onclick={openSystem} title="System prompt">
+      <span class="max-sm:hidden">System prompt</span>
+      {#if systemPrompt}<StatusDot status="ok" label="System prompt is set" />{/if}
+    </Button>
   </header>
 
   {#if !cs || path.length === 0}
-    <!-- empty state -->
-    <div class="flex min-h-0 flex-1 flex-col items-center justify-center pb-[12vh]">
-      <h1 class="animate-fade-up mb-7 px-4 text-center text-[28px] font-semibold tracking-tight sm:text-[32px]">
-        <span class="text-accent">✦</span> {greeting}
-      </h1>
-      <div class="w-full"><Composer centered /></div>
-      {#if app.presets.length}
-        <div class="mt-4 flex max-w-3xl flex-wrap justify-center gap-2 px-4">
-          {#each app.presets as p (p.id)}
-            {@const on = (cs ? cs.chat.system_prompt : app.draftSystem) === p.prompt}
-            <button
-              class="rounded-full border px-3.5 py-1.5 text-sm transition-colors {on ? 'border-accent bg-accent-soft text-fg' : 'border-line text-muted hover:bg-hover hover:text-fg'}"
-              onclick={() => app.setSystemPrompt(on ? '' : p.prompt)}
-            >{p.name}</button>
-          {/each}
-        </div>
-      {/if}
+    <div class="min-h-0 flex-1 overflow-y-auto">
+      <div class="mx-auto w-full max-w-column px-4 pt-empty-state pb-8 sm:px-6">
+        <h1 class="mb-5 text-xl font-semibold tracking-tight">New chat</h1>
+        <Composer centered />
+        {#if app.presets.length}
+          <div class="mt-4 flex flex-wrap items-center gap-2">
+            <span class="mr-1 text-sm text-ink-3">Start from</span>
+            {#each app.presets as p (p.id)}
+              {@const on = systemPrompt === p.prompt}
+              <Button size="sm" variant={on ? 'primary' : 'secondary'} icon={on ? 'check' : undefined} onclick={() => app.setSystemPrompt(on ? '' : p.prompt)}>{p.name}</Button>
+            {/each}
+          </div>
+        {/if}
+      </div>
     </div>
   {:else}
     <div class="relative min-h-0 flex-1">
-      <div bind:this={scroller} {onscroll} class="h-full overflow-y-auto [overflow-anchor:none]">
-        <div bind:this={content} class="mx-auto flex max-w-3xl flex-col gap-7 px-4 pb-10 pt-4 sm:px-6">
+      <div bind:this={scroller} {onscroll} class="h-full overflow-y-auto scroll-anchor-none">
+        <div bind:this={content} class="mx-auto flex w-full max-w-column flex-col px-4 pt-6 pb-12 sm:px-6">
           {#each path as msg, i (msg.id)}
-            <MessageView {msg} cs={cs!} last={i === path.length - 1} />
+            <MessageView {msg} cs={cs!} last={i === path.length - 1} first={i === 0} />
           {/each}
         </div>
       </div>
       {#if !stick}
-        <button
-          class="animate-pop absolute bottom-3 left-1/2 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full border border-line bg-elev text-muted shadow-soft hover:text-fg"
-          onclick={toBottom}
-          aria-label="Scroll to bottom"
-        ><Icon name="arrowDown" size={17} /></button>
+        <div class="motion-overlay absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md border border-line bg-raised shadow-overlay">
+          <IconButton icon="arrowDown" label="Scroll to bottom" onclick={toBottom} />
+        </div>
       {/if}
     </div>
-    <Composer />
+    <div class="mx-auto w-full max-w-column px-4 pb-4 sm:px-6" style="padding-bottom: max(env(safe-area-inset-bottom), 16px)">
+      <Composer />
+    </div>
   {/if}
 </div>
 
 {#if showSystem}
-  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-[2px]" onclick={(e) => e.target === e.currentTarget && (showSystem = false)}>
-    <div class="animate-pop w-full max-w-xl rounded-2xl border border-line bg-elev p-5 shadow-pop">
-      <div class="mb-1 flex items-center justify-between">
-        <h2 class="text-base font-semibold">System prompt</h2>
-        <button class="btn-icon" onclick={() => (showSystem = false)} aria-label="Close"><Icon name="x" /></button>
+  <Dialog title="System prompt" description="Instructions the model reads before {cs ? 'this chat' : 'your next chat'}." onclose={() => (showSystem = false)}>
+    {#if app.presets.length}
+      <div class="mb-3 flex flex-wrap gap-2">
+        {#each app.presets as p (p.id)}
+          <Button size="sm" onclick={() => (systemDraft = p.prompt)}>{p.name}</Button>
+        {/each}
       </div>
-      <p class="mb-3 text-sm text-muted">Instructions the model sees at the start of {cs ? 'this chat' : 'the next chat'}.</p>
-      {#if app.presets.length}
-        <div class="mb-3 flex flex-wrap gap-1.5">
-          {#each app.presets as p (p.id)}
-            <button class="rounded-full border border-line px-3 py-1 text-xs text-muted hover:bg-hover hover:text-fg" onclick={() => (systemDraft = p.prompt)}>{p.name}</button>
-          {/each}
-        </div>
-      {/if}
-      <!-- svelte-ignore a11y_autofocus -->
-      <textarea bind:value={systemDraft} rows="8" class="input font-[inherit]" placeholder="You are a helpful assistant…" autofocus
-        onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveSystem() }}></textarea>
-      <div class="mt-4 flex justify-end gap-2">
-        {#if systemDraft}<button class="btn-ghost mr-auto" onclick={() => (systemDraft = '')}>Clear</button>{/if}
-        <button class="btn-ghost" onclick={() => (showSystem = false)}>Cancel</button>
-        <button class="btn-primary" onclick={saveSystem}>Save</button>
-      </div>
-    </div>
-  </div>
+    {/if}
+    <TextArea bind:value={systemDraft} rows={8} autofocus placeholder="For example: Answer briefly. Use metric units."
+      onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveSystem() }} />
+    {#snippet footer()}
+      {#if systemDraft}<Button variant="ghost" onclick={() => (systemDraft = '')}>Clear</Button>{/if}
+      <span class="flex-1"></span>
+      <Button onclick={() => (showSystem = false)}>Cancel</Button>
+      <Button variant="primary" onclick={saveSystem}>Save</Button>
+    {/snippet}
+  </Dialog>
 {/if}

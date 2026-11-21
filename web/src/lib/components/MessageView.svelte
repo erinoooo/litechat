@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { Message } from '../api'
   import { app, type ChatState } from '../state.svelte'
-  import Markdown from './Markdown.svelte'
-  import Icon from './Icon.svelte'
-  import ToolCall from './ToolCall.svelte'
   import { plainText } from '../markdown'
+  import Markdown from './Markdown.svelte'
+  import ToolCall from './ToolCall.svelte'
+  import { Attachment, AutoTextarea, Button, IconButton, Notice, Well } from '../ui'
 
-  let { msg, cs, last }: { msg: Message; cs: ChatState; last: boolean } = $props()
+  let { msg, cs, last, first }: { msg: Message; cs: ChatState; last: boolean; first: boolean } = $props()
 
   const streaming = $derived(cs.streamingId === msg.id)
   const siblings = $derived(cs.children(msg.parent_id))
@@ -28,32 +28,17 @@
   let editing = $state(false)
   let draft = $state('')
   let copied = $state(false)
-  let editEl = $state<HTMLTextAreaElement>()
+  let editor = $state<AutoTextarea>()
 
   function startEdit() {
     draft = msg.content
     editing = true
-    queueMicrotask(() => {
-      if (!editEl) return
-      editEl.focus()
-      editEl.setSelectionRange(draft.length, draft.length)
-      autosize()
-    })
-  }
-
-  function autosize() {
-    if (!editEl) return
-    editEl.style.height = 'auto'
-    editEl.style.height = Math.min(editEl.scrollHeight, 400) + 'px'
+    queueMicrotask(() => editor?.setCursorEnd())
   }
 
   function submitEdit() {
-    if (!draft.trim() || draft === msg.content) {
-      editing = false
-      return
-    }
     editing = false
-    app.edit(msg, draft)
+    if (draft.trim() && draft !== msg.content) app.edit(msg, draft)
   }
 
   function copy() {
@@ -61,75 +46,64 @@
     copied = true
     setTimeout(() => (copied = false), 1400)
   }
+
+  const kb = (n: number) => `${(n / 1024).toFixed(1)} KB of text`
 </script>
 
 {#snippet branchNav()}
   {#if siblings.length > 1}
-    <div class="flex items-center text-xs text-faint tabular-nums select-none">
-      <button class="btn-icon" disabled={sibIndex === 0 || busy} onclick={() => app.switchBranch(msg, -1)} aria-label="Previous version">
-        <Icon name="chevronLeft" size={14} />
-      </button>
-      <span class="px-0.5">{sibIndex + 1}/{siblings.length}</span>
-      <button class="btn-icon" disabled={sibIndex === siblings.length - 1 || busy} onclick={() => app.switchBranch(msg, 1)} aria-label="Next version">
-        <Icon name="chevronRight" size={14} />
-      </button>
+    <div class="flex items-center text-xs text-ink-3 tabular-nums">
+      <IconButton icon="chevronLeft" label="Previous version" size="sm" disabled={sibIndex === 0 || busy} onclick={() => app.switchBranch(msg, -1)} />
+      <span aria-label="Version {sibIndex + 1} of {siblings.length}">{sibIndex + 1} of {siblings.length}</span>
+      <IconButton icon="chevronRight" label="Next version" size="sm" disabled={sibIndex === siblings.length - 1 || busy} onclick={() => app.switchBranch(msg, 1)} />
     </div>
   {/if}
 {/snippet}
 
 {#if msg.role === 'user'}
-  <div class="group flex flex-col items-end gap-1 animate-fade-up">
+  <!-- The prompt reads as the heading of its turn: pine rule, medium weight. -->
+  <div class="group {first ? '' : 'mt-6'}">
     {#if editing}
-      <div class="w-full rounded-2xl border border-line-strong bg-elev p-3 shadow-soft">
-        <textarea
-          bind:this={editEl}
-          bind:value={draft}
-          oninput={autosize}
+      <Well>
+        <div class="px-3 pt-2"><AutoTextarea bind:this={editor} bind:value={draft} ariaLabel="Edit message"
           onkeydown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submitEdit() }
             if (e.key === 'Escape') editing = false
-          }}
-          class="w-full resize-none bg-transparent outline-none"
-          rows="1"
-        ></textarea>
-        <div class="mt-2 flex justify-end gap-2">
-          <button class="btn-ghost" onclick={() => (editing = false)}>Cancel</button>
-          <button class="btn-primary" onclick={submitEdit}>Send</button>
+          }} /></div>
+        <div class="flex justify-end gap-2 p-2">
+          <Button size="sm" variant="ghost" onclick={() => (editing = false)}>Cancel</Button>
+          <Button size="sm" variant="primary" onclick={submitEdit}>Send edit</Button>
         </div>
-      </div>
+      </Well>
     {:else}
-      {#if msg.images.length}
-        <div class="flex flex-wrap justify-end gap-2">
-          {#each msg.images as src}
-            <img {src} alt="" class="max-h-56 max-w-[240px] rounded-xl border border-line object-cover" />
-          {/each}
-        </div>
-      {/if}
-      {#if parsed.files.length}
-        <div class="flex flex-wrap justify-end gap-2">
-          {#each parsed.files as f}
-            <div class="flex items-center gap-2 rounded-xl border border-line bg-elev px-3 py-2 text-sm">
-              <Icon name="paperclip" size={15} class="text-muted" />
-              <span class="max-w-[200px] truncate font-medium">{f.name}</span>
-              <span class="text-xs text-faint">{(f.size / 1024).toFixed(1)} KB</span>
+      <div class="flex items-start gap-2">
+        <div class="min-w-0 flex-1 border-l-2 border-pine pl-4">
+          {#if parsed.text}
+            <p class="text-base font-medium whitespace-pre-wrap break-words text-ink">{parsed.text}</p>
+          {/if}
+          {#if msg.images.length || parsed.files.length}
+            <div class="mt-2 flex flex-wrap gap-2">
+              {#each msg.images as src}
+                <img {src} alt="Attached" class="max-h-48 max-w-60 rounded-md border border-line object-cover" />
+              {/each}
+              {#each parsed.files as f}
+                <Attachment name={f.name} detail={kb(f.size)} />
+              {/each}
             </div>
-          {/each}
+          {/if}
         </div>
-      {/if}
-      {#if parsed.text}
-        <div class="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-bubble px-4 py-2.5">{parsed.text}</div>
-      {/if}
-      <div class="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 max-md:opacity-100">
-        {@render branchNav()}
-        <button class="btn-icon" onclick={copy} aria-label="Copy" title="Copy"><Icon name={copied ? 'check' : 'copy'} size={15} /></button>
-        <button class="btn-icon" onclick={startEdit} disabled={busy} aria-label="Edit" title="Edit"><Icon name="edit" size={15} /></button>
+        <div class="-my-1 flex shrink-0 items-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-md:opacity-100">
+          {@render branchNav()}
+          <IconButton icon="edit" label="Edit" size="sm" disabled={busy} onclick={startEdit} />
+          <IconButton icon={copied ? 'check' : 'copy'} label={copied ? 'Copied' : 'Copy'} size="sm" onclick={copy} />
+        </div>
       </div>
     {/if}
   </div>
 {:else}
-  <div class="group animate-fade-up">
+  <div class="group mt-4">
     {#if !msg.content && streaming && !cs.activeTool}
-      <div class="typing" aria-label="Generating"><span></span><span></span><span></span></div>
+      <span class="motion-blink inline-block h-5 w-0.5 bg-pine align-middle" aria-label="Generating"></span>
     {:else if msg.content}
       <Markdown content={msg.content} streaming={streaming && !cs.activeTool} />
     {/if}
@@ -138,20 +112,20 @@
     {/if}
 
     {#if msg.error}
-      <div class="mt-3 flex items-start gap-2 rounded-xl border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
-        <span class="min-w-0 flex-1 break-words">{msg.error}</span>
-        <button class="shrink-0 font-medium underline underline-offset-2" onclick={() => app.regenerate(msg)}>Retry</button>
+      <div class="mt-3">
+        <Notice tone="error">
+          {msg.error}
+          {#snippet action()}<Button size="sm" variant="danger" onclick={() => app.regenerate(msg)}>Try again</Button>{/snippet}
+        </Notice>
       </div>
     {/if}
 
     {#if !streaming}
-      <div class="mt-1.5 -ml-1.5 flex items-center gap-0.5 transition-opacity {last ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 max-md:opacity-100'}">
-        <button class="btn-icon" onclick={copy} aria-label="Copy" title="Copy"><Icon name={copied ? 'check' : 'copy'} size={15} /></button>
-        <button class="btn-icon" onclick={() => app.regenerate(msg)} disabled={busy} aria-label="Regenerate" title="Regenerate"><Icon name="refresh" size={15} /></button>
+      <div class="mt-2 -ml-1.5 flex items-center transition-opacity {last ? '' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 max-md:opacity-100'}">
+        <IconButton icon={copied ? 'check' : 'copy'} label={copied ? 'Copied' : 'Copy'} size="sm" onclick={copy} />
+        <IconButton icon="refresh" label="Regenerate" size="sm" disabled={busy} onclick={() => app.regenerate(msg)} />
         {@render branchNav()}
-        {#if msg.model}
-          <span class="ml-1.5 truncate text-xs text-faint">{app.modelName(msg.model)}</span>
-        {/if}
+        {#if msg.model}<span class="ml-2 truncate text-xs text-ink-3">{app.modelName(msg.model)}</span>{/if}
       </div>
     {/if}
   </div>

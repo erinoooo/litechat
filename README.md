@@ -62,8 +62,12 @@ fuller base image. Toggle tools per message with the **Tools** button in the com
 
 ```sh
 make dev        # Go backend on :3000 + Vite with hot reload on :5173 (open :5173)
-make test       # Go tests + frontend type-check
+make test       # Go tests, frontend type-check, design-system lint
 ```
+
+The UI follows a small design system: tokens in `web/src/app.css`, components in
+`web/src/lib/ui`, rules in [`web/DESIGN.md`](web/DESIGN.md), and a live reference at
+`/_ui`. `npm run lint:ui` (part of every build) rejects off-system styling.
 
 ## Layout
 

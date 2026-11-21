@@ -61,6 +61,7 @@ md.use({
         if (!hljs) loadHljs()
         body = escapeHtml(text)
       }
+      // ui-allow: generated HTML string; styled by .code-block in app.css
       return `<div class="code-block"><div class="code-head"><span>${escapeHtml(language || 'text')}</span><button class="copy-btn" type="button" data-copy>Copy</button></div><pre><code>${body}</code></pre></div>`
     },
   },

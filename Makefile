@@ -19,7 +19,7 @@ dev:
 
 test:
 	$(GO) vet ./... && $(GO) test ./...
-	cd web && npx svelte-check --tsconfig ./tsconfig.json
+	cd web && npx svelte-check --tsconfig ./tsconfig.json && npm run lint:ui
 
 run: build
 	./$(BIN)
