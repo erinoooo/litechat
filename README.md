@@ -59,6 +59,17 @@ cd litechat_*_linux_amd64
 
 Open http://localhost:3000 and choose a password. Builds are available for Linux, macOS, Windows and FreeBSD on x86-64 and ARM.
 
+### pipx, uv or pip
+
+The same binary is on PyPI as [`litechat-py`](https://pypi.org/project/litechat-py/), for Linux, macOS and Windows:
+
+```sh
+pipx install litechat-py      # or: uv tool install litechat-py
+litechat
+```
+
+To try it without installing: `uvx --from litechat-py litechat`.
+
 ### Docker
 
 ```sh
@@ -90,10 +101,12 @@ make
 | Flag | Environment variable | Default | |
 |---|---|---|---|
 | `-addr` | `LITECHAT_ADDR` | `:3000` | Address to listen on |
-| `-data` | `LITECHAT_DATA` | `./data` | Folder for the database |
+| `-data` | `LITECHAT_DATA` | see below | Folder for the database |
 | | `LITECHAT_PASSWORD` | | Sets or resets the password at startup |
 | | `LITECHAT_MCP_STDIO` | | `1` allows local (command-based) MCP servers |
 | `-version` | | | Print the version and exit |
+
+By default chats are stored in `~/.local/share/litechat` on Linux, `~/Library/Application Support/litechat` on macOS and `%LocalAppData%\litechat` on Windows. If the current directory has a `data` folder with a database in it (the default before v0.2.0), that is used instead. The startup log shows which folder is in use.
 
 Everything else is set in the app.
 
@@ -108,7 +121,7 @@ Everything else is set in the app.
 
 ## Status
 
-liteChat is young: it works well day to day, but expect rough edges, and back up your `data` folder. Bug reports and ideas are welcome in [issues](https://github.com/erinoooo/litechat/issues). See [CHANGELOG.md](CHANGELOG.md) for what's new.
+liteChat is young: it works well day to day, but expect rough edges, and back up your data folder (the startup log shows where it is). Bug reports and ideas are welcome in [issues](https://github.com/erinoooo/litechat/issues). See [CHANGELOG.md](CHANGELOG.md) for what's new.
 
 ## License
 

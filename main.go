@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"syscall"
 	"time"
@@ -34,9 +35,42 @@ func env(key, def string) string {
 	return def
 }
 
+// defaultDataDir keeps using ./data when it already holds a database (how
+// v0.1.0 worked), and otherwise uses a per-user folder, so the command works
+// the same from any directory: ~/.local/share/litechat on Linux,
+// ~/Library/Application Support/litechat on macOS, %LocalAppData%\litechat
+// on Windows.
+func defaultDataDir() string {
+	if _, err := os.Stat(filepath.Join("data", "litechat.db")); err == nil {
+		return "data"
+	}
+	return userDataDir()
+}
+
+func userDataDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "data"
+	}
+	switch runtime.GOOS {
+	case "windows":
+		if d := os.Getenv("LocalAppData"); d != "" {
+			return filepath.Join(d, "litechat")
+		}
+		return filepath.Join(home, "AppData", "Local", "litechat")
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support", "litechat")
+	default:
+		if d := os.Getenv("XDG_DATA_HOME"); filepath.IsAbs(d) {
+			return filepath.Join(d, "litechat")
+		}
+		return filepath.Join(home, ".local", "share", "litechat")
+	}
+}
+
 func main() {
 	addr := flag.String("addr", env("LITECHAT_ADDR", ":3000"), "listen address")
-	dataDir := flag.String("data", env("LITECHAT_DATA", "./data"), "data directory")
+	dataDir := flag.String("data", env("LITECHAT_DATA", defaultDataDir()), "data directory")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -81,7 +115,7 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
-		log.Printf("liteChat %s listening on %s", version, *addr)
+		log.Printf("liteChat %s listening on %s, data in %s", version, *addr, *dataDir)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}

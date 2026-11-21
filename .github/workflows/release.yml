@@ -1,7 +1,8 @@
 name: Release
 
 # Push a tag like v0.2.0 to build binaries for every platform, publish a
-# GitHub release with checksums, and push a multi-arch Docker image to GHCR.
+# GitHub release with checksums, push a multi-arch Docker image to GHCR, and
+# publish the binaries to PyPI as litechat-py.
 on:
   push:
     tags: ['v*']
@@ -62,7 +63,13 @@ jobs:
 
           ## Install
 
-          Download the archive for your platform below, unpack it and run \`./litechat\`, then open http://localhost:3000.
+          Download the archive for your platform below, unpack it and run \`./litechat\`, then open http://localhost:3000. Or install it with Python tooling:
+
+          \`\`\`sh
+          pipx install litechat-py
+          \`\`\`
+
+          Or with Docker:
 
           \`\`\`sh
           docker run -p 3000:3000 -v litechat:/data ghcr.io/${{ github.repository }}:${VERSION#v}
@@ -73,6 +80,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.ref_name }}
         run: gh release create "$VERSION" dist/* --title "liteChat $VERSION" --notes-file notes.md --verify-tag
+
+  pypi:
+    # Repacks the release archives into wheels, so PyPI gets the same binaries.
+    # Uploads with PyPI Trusted Publishing: no token is stored in the repo.
+    needs: binaries
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/litechat-py/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build wheels from the release archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          gh release download "$VERSION" -D release -p '*.tar.gz' -p '*.zip' -p checksums.txt
+          (cd release && sha256sum -c --ignore-missing checksums.txt)
+          python3 python/build_wheels.py release "$VERSION" wheels
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: wheels/
 
   docker:
     runs-on: ubuntu-latest

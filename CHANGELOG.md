@@ -4,6 +4,16 @@ All notable changes to liteChat. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-21
+
+### Added
+
+- Install with Python tooling: `pipx install litechat-py`, `uv tool install litechat-py` or `pip install litechat-py`. The wheels contain the same binary as the release downloads.
+
+### Changed
+
+- The default data folder is now per user (`~/.local/share/litechat` on Linux, `~/Library/Application Support/litechat` on macOS, `%LocalAppData%\litechat` on Windows), so `litechat` finds your chats from any directory. A `data` folder that already holds a database in the current directory is still used, and `-data` / `LITECHAT_DATA` still override it. The startup log shows which folder is in use.
+
 ## [0.1.0] - 2026-11-21
 
 First public release.
@@ -23,5 +33,6 @@ First public release.
 - Notice when a model stops at its length limit, with how to fix it.
 - Binaries for Linux, macOS, Windows and FreeBSD; multi-arch Docker image.
 
-[Unreleased]: https://github.com/erinoooo/litechat/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/erinoooo/litechat/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/erinoooo/litechat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/erinoooo/litechat/releases/tag/v0.1.0
