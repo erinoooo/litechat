@@ -6,7 +6,8 @@ Needs Go 1.27+ and Node 24+.
 
 ```sh
 make dev     # Go backend on :3000, Vite with hot reload on :5173; open :5173
-make test    # go vet, Go tests, frontend type-check, design-system lint
+make test    # go vet, Go tests, frontend type-check, design-system lint, Python package tests
+make test-py # only the Python package tests (python/), against a fresh binary
 make build   # production binary ./litechat with the frontend embedded
 ```
 

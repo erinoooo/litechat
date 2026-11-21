@@ -2,3 +2,5 @@
 /data/
 web/node_modules/
 web/dist/
+__pycache__/
+*.egg-info/

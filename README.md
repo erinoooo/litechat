@@ -70,6 +70,8 @@ litechat
 
 To try it without installing: `uvx --from litechat-py litechat`.
 
+The package also lets you run and use liteChat from Python code with `import litechat`; see [Python](docs/python.md).
+
 ### Docker
 
 ```sh
@@ -98,13 +100,22 @@ make
 
 ## Configuration
 
-| Flag | Environment variable | Default | |
-|---|---|---|---|
-| `-addr` | `LITECHAT_ADDR` | `:3000` | Address to listen on |
-| `-data` | `LITECHAT_DATA` | see below | Folder for the database |
-| | `LITECHAT_PASSWORD` | | Sets or resets the password at startup |
-| | `LITECHAT_MCP_STDIO` | | `1` allows local (command-based) MCP servers |
-| `-version` | | | Print the version and exit |
+```sh
+litechat --port 8080                     # another port
+litechat --host 127.0.0.1                # this machine only
+litechat --data ~/chats --port 0         # another folder, any free port
+```
+
+| Option | Default | |
+|---|---|---|
+| `--port N` | `3000` | Port to listen on; `0` picks a free one |
+| `--host ADDR` | all interfaces | Interface to listen on, e.g. `127.0.0.1` |
+| `--data DIR` | see below | Folder for the database |
+| `--password PW` | | Sets or resets the password at startup |
+| `--allow-local-mcp` | off | Allows MCP servers that run local commands |
+| `--version` | | Print the version and exit |
+
+`litechat --help` lists them too. Each option can also come from an environment variable, which suits Docker and systemd: `LITECHAT_PORT`, `LITECHAT_HOST`, `LITECHAT_DATA`, `LITECHAT_PASSWORD` and `LITECHAT_MCP_STDIO=1`. Options on the command line win. Other users on the machine can see command-line arguments, so on a shared machine pass the password through `LITECHAT_PASSWORD` instead.
 
 By default chats are stored in `~/.local/share/litechat` on Linux, `~/Library/Application Support/litechat` on macOS and `%LocalAppData%\litechat` on Windows. If the current directory has a `data` folder with a database in it (the default before v0.2.0), that is used instead. The startup log shows which folder is in use.
 
@@ -116,6 +127,7 @@ Everything else is set in the app.
 - [Tools (MCP)](docs/tools.md)
 - [Search, import and export](docs/search-and-data.md)
 - [Deploying: systemd, reverse proxies, Docker](docs/deployment.md)
+- [Python package](docs/python.md)
 - [HTTP API](docs/api.md)
 - [Development and the design system](docs/development.md)
 

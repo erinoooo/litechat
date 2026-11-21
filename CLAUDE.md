@@ -5,7 +5,8 @@ Go backend (`internal/`, single binary, SQLite) + Svelte 5 frontend (`web/`) emb
 ## Commands
 
 - `make build`: lint UI, build frontend, build `./litechat`
-- `make test`: `go vet`, Go tests, frontend type-check, design-system lint
+- `make test`: `go vet`, Go tests, frontend type-check, design-system lint, Python tests (`make test-py`)
+- `python/`: the `litechat-py` PyPI package (stdlib-only `litechat` library + wheel builder). Its API wraps `docs/api.md`; keep them in step
 - `make dev`: backend on :3000 + Vite on :5173
 - Go lives in `~/.local/go/bin` (add it to PATH in each shell)
 

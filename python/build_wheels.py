@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Repack liteChat release archives into PyPI wheels (package: litechat-py).
 
-Each wheel holds only the prebuilt binary, under <name>.data/scripts/, so
-pip installs it straight onto PATH as `litechat`; no Python runs at startup.
+Each wheel holds the prebuilt binary under <name>.data/scripts/, so pip
+installs it straight onto PATH as `litechat` (no Python runs at startup),
+plus the `litechat` Python package, which starts the binary and talks to it.
 The binaries are static (CGO off), so one Linux wheel serves glibc and musl.
 
     python3 python/build_wheels.py <dir with release archives> <version> <out dir>
@@ -43,7 +44,7 @@ def metadata(version: str) -> str:
         "Metadata-Version: 2.4\n"
         f"Name: {NAME}\n"
         f"Version: {version}\n"
-        "Summary: Lightweight self-hosted chat UI for local and cloud LLMs, in one binary.\n"
+        "Summary: Lightweight self-hosted chat UI for local and cloud LLMs: one binary, plus a Python API.\n"
         "License-Expression: MIT\n"
         "License-File: LICENSE\n"
         "Requires-Python: >=3.8\n"
@@ -59,6 +60,8 @@ def metadata(version: str) -> str:
         "Classifier: Operating System :: Microsoft :: Windows\n"
         "Classifier: Operating System :: POSIX :: Linux\n"
         "Classifier: Topic :: Communications :: Chat\n"
+        "Classifier: Programming Language :: Python :: 3\n"
+        "Classifier: Typing :: Typed\n"
         "Description-Content-Type: text/markdown\n"
         "\n" + readme
     )
@@ -97,6 +100,11 @@ def build(archive: Path, platform: str, version: str, out: Path) -> Path:
     wheel_tag = f"py3-none-{platform}"
     entries = [
         (f"{DIST}-{version}.data/scripts/{exe}", files[exe], 0o755),
+        *(
+            (f"litechat/{f.name}", f.read_bytes(), 0o644)
+            for f in sorted((HERE / "litechat").iterdir())
+            if f.is_file() and f.suffix in (".py", ".typed")
+        ),
         (f"{info}/licenses/LICENSE", files["LICENSE"], 0o644),
         (f"{info}/METADATA", metadata(version).encode(), 0o644),
         (

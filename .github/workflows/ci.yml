@@ -38,4 +38,28 @@ jobs:
       - name: Go test
         run: go test ./...
       - name: Build binary
-        run: CGO_ENABLED=0 go build -trimpath -o litechat . && ./litechat -version
+        run: CGO_ENABLED=0 go build -trimpath -o litechat . && ./litechat --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: litechat-linux
+          path: litechat
+
+  python:
+    # the Python package against the real binary, oldest and newest Python
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.8', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: litechat-linux
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Test
+        run: |
+          chmod +x litechat
+          LITECHAT_BINARY=$PWD/litechat PYTHONPATH=python python -W error::ResourceWarning -m unittest discover -s python/tests -v

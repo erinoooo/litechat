@@ -4,6 +4,20 @@ All notable changes to liteChat. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-21
+
+### Added
+
+- `import litechat`: the `litechat-py` package is now also a Python library. Start a server from Python (`litechat.Server`, `litechat.run`) and chat through any server (`litechat.Client`): send messages, stream replies, manage chats and providers. Standard library only. See [docs/python.md](docs/python.md).
+- Command-line options for everything: `--port`, `--host`, `--password`, `--allow-local-mcp` (plus `--data` and `--version`), and `litechat --help`. Environment variables still work, now including `LITECHAT_PORT` and `LITECHAT_HOST`; options win over them.
+- `--port 0` picks a free port; the startup log shows the real address as a URL.
+- `python -m litechat` runs the server.
+
+### Changed
+
+- `-addr` and `LITECHAT_ADDR` still work but are no longer documented; use `--host` and `--port`.
+- liteChat now fails right away when its port is busy, before opening the database.
+
 ## [0.2.0] - 2026-11-21
 
 ### Added
@@ -33,6 +47,7 @@ First public release.
 - Notice when a model stops at its length limit, with how to fix it.
 - Binaries for Linux, macOS, Windows and FreeBSD; multi-arch Docker image.
 
-[Unreleased]: https://github.com/erinoooo/litechat/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/erinoooo/litechat/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/erinoooo/litechat/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/erinoooo/litechat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/erinoooo/litechat/releases/tag/v0.1.0

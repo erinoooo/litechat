@@ -1,6 +1,6 @@
 # HTTP API
 
-The web app uses a small JSON API, which you can also call from scripts. It isn't versioned yet, so it may change between releases.
+The web app uses a small JSON API, which you can also call from scripts. It isn't versioned yet, so it may change between releases. From Python, the [`litechat` package](python.md) wraps it.
 
 ## Authentication
 

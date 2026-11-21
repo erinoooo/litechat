@@ -13,10 +13,10 @@ Wants=network-online.target
 
 [Service]
 User=litechat
-ExecStart=/usr/local/bin/litechat -addr 127.0.0.1:3000 -data /var/lib/litechat
+ExecStart=/usr/local/bin/litechat --host 127.0.0.1 --port 3000 --data /var/lib/litechat
 Restart=on-failure
-# Optional: allow local MCP servers
-# Environment=LITECHAT_MCP_STDIO=1
+# Optional: set the password from a secret file holding LITECHAT_PASSWORD=...
+# EnvironmentFile=/etc/litechat.env
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -84,8 +84,8 @@ The image is built `FROM scratch`: it contains only liteChat and CA certificates
 
 ## Security checklist
 
-- Use a long password, or set it from a secret with `LITECHAT_PASSWORD`.
+- Use a long password, or set it from a secret with `LITECHAT_PASSWORD` (not `--password`, which other users on the machine can see in the process list).
 - Serve it over HTTPS if it's reachable beyond your own network. Login attempts are rate-limited per IP (10 failures per 10 minutes).
 - Provider and MCP URLs are requested by the server, so anyone who can log in can make liteChat send requests to addresses it can reach.
-- Leave `LITECHAT_MCP_STDIO` unset unless you need local MCP servers.
+- Leave `--allow-local-mcp` off unless you need local MCP servers.
 - The database holds API keys: restrict access to the `data` folder and its backups.

@@ -18,7 +18,7 @@ Settings → **Tools** → **Add a server**.
 | Arguments | `-y` / `@modelcontextprotocol/server-filesystem` / `/home/me/notes` (one per line) |
 | Environment | `GITHUB_TOKEN=…` |
 
-Local servers run programs on the machine hosting liteChat, so they're off by default. Start liteChat with `LITECHAT_MCP_STDIO=1` to allow them, and only do that if you trust everyone who knows the password. The command's runtime (Node for `npx`, Python for `uvx`) must be installed on the host; the official Docker image has neither, so use remote servers there or build your own image on a fuller base.
+Local servers run programs on the machine hosting liteChat, so they're off by default. Start liteChat with `--allow-local-mcp` (or `LITECHAT_MCP_STDIO=1`) to allow them, and only do that if you trust everyone who knows the password. The command's runtime (Node for `npx`, Python for `uvx`) must be installed on the host; the official Docker image has neither, so use remote servers there or build your own image on a fuller base.
 
 Header and environment values are stored on the server and shown masked in the browser.
 
