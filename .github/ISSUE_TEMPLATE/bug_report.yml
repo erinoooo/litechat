@@ -1,0 +1,30 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Version
+      description: Output of `litechat -version`
+      placeholder: litechat v0.1.0
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Provider and model
+      placeholder: Ollama 0.40, qwen3.5:4b
+  - type: input
+    attributes:
+      label: OS, browser, how you run it
+      placeholder: Ubuntu 24.04, Firefox 140, Docker
+  - type: textarea
+    attributes:
+      label: Server log
+      description: Relevant lines from liteChat's output.
+      render: text

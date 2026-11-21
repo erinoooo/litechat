@@ -1,0 +1,16 @@
+# docker compose up -d   →   http://localhost:3000
+services:
+  litechat:
+    image: ghcr.io/erinoooo/litechat:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - litechat:/data
+    # environment:
+    #   LITECHAT_PASSWORD: change-me   # optional; otherwise you set it on first visit
+    extra_hosts:
+      - host.docker.internal:host-gateway   # reach Ollama etc. running on the host
+    restart: unless-stopped
+
+volumes:
+  litechat:

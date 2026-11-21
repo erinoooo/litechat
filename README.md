@@ -1,101 +1,115 @@
-# liteChat
+<h1>liteChat</h1>
 
-A lightweight, self-hosted chat UI for LLMs. One ~15 MB Go binary, one SQLite file, no runtime dependencies, ~25 MB of RAM. Built for headless machines: run it anywhere, use it from any browser.
+A lightweight, self-hosted chat UI for local and cloud LLMs.
+One ~15 MB binary, one SQLite file, ~25 MB of RAM. Run it on a headless box and use it from any browser.
 
-- **Any provider**: anything OpenAI-compatible (Ollama, llama.cpp, LM Studio, vLLM, OpenRouter, Groq, OpenAI…) plus native Anthropic. Models are discovered automatically.
-- **Finds local servers for you**: Ollama, LM Studio, llama.cpp/llamafile, vLLM, KoboldCpp, SGLang, Text Generation WebUI, TabbyAPI, LiteLLM, Jan, GPT4All, LocalAI, MLX and any other OpenAI-compatible server on this machine are detected on their default ports and added with one click. A "Scan network" button checks the other computers on your LAN too.
-- **Streaming** with smooth incremental markdown, syntax highlighting, KaTeX math and collapsible "thinking" sections (highlighter and math load only when needed).
-- **Branching**: edit a message or regenerate a reply, then flip between versions.
-- **Replies run on the server**: close the tab, lock your phone or reload mid-answer; the reply keeps going and the UI re-attaches. Stop works from any device.
-- **Tools via MCP**: connect remote (HTTP) or local (stdio) [MCP](https://modelcontextprotocol.io) servers; the model can call them in a loop, and each call is shown as an expandable card.
-- **Attachments**: images (downscaled client-side), PDF and DOCX (text extracted on the server), and any text/code file.
-- **Search**: full-text (Ctrl+K), plus optional **search by meaning**: an embedding model indexes every exchange so you can find a chat by what it was about, not the exact words.
-- **Import/export**: export everything as JSON or a chat as Markdown; import liteChat, ChatGPT (`conversations.json`) and Open WebUI exports with branches intact.
-- Pinned chats, auto titles, system-prompt presets, light/dark themes, mobile layout, installable as a PWA.
-- **Single password** login; API keys stay on the server.
+[![CI](https://github.com/erinoooo/litechat/actions/workflows/ci.yml/badge.svg)](https://github.com/erinoooo/litechat/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/erinoooo/litechat)](https://github.com/erinoooo/litechat/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-## Run
+![liteChat with a local model](docs/screenshots/chat-light.png)
 
-```sh
-make            # builds web/ and embeds it into ./litechat
-./litechat      # http://localhost:3000, data in ./data
-```
+## Why
 
-Options (flag / env):
+Open WebUI is capable, but it's a large Python app whose Docker image runs to several gigabytes.
+liteChat keeps the parts people use every day and drops the rest:
 
-| Flag | Env | Default |
-|---|---|---|
-| `-addr` | `LITECHAT_ADDR` | `:3000` |
-| `-data` | `LITECHAT_DATA` | `./data` |
-| | `LITECHAT_PASSWORD` | unset; sets/resets the password at startup |
-| | `LITECHAT_MCP_STDIO` | unset; `1` allows local (stdio) MCP servers, which run commands on the host |
+|  | liteChat |
+|---|---|
+| Install | One static binary, or a ~15 MB Docker image |
+| Runtime | No Python, no Node, no external database |
+| Memory | ~25 MB at idle |
+| First page load | ~80 KB of JavaScript (gzipped); code highlighting and math load on demand |
 
-Without `LITECHAT_PASSWORD`, the first visit asks you to choose a password.
+## Features
 
-Docker:
+- **Any model.** Ollama, llama.cpp, LM Studio, vLLM, OpenRouter, Groq, OpenAI, any OpenAI-compatible server, and Anthropic. Model lists are fetched automatically.
+- **Finds local servers for you.** Ollama, LM Studio, llama.cpp, vLLM, KoboldCpp, SGLang and others running on this machine show up in Settings with an Add button. You can also scan your local network.
+- **Replies run on the server.** Close the tab, lock your phone or reload mid-answer: the reply keeps going and the page picks it back up.
+- **Branching.** Edit a message or regenerate a reply, then switch between versions.
+- **Tools through MCP.** Connect [MCP](https://modelcontextprotocol.io) servers (remote or local) so models can search the web, read files, use GitHub and more.
+- **Attachments.** Images, PDF, DOCX and text or code files.
+- **Search.** Full-text search across every chat (Ctrl+K), plus optional search by meaning using an embedding model you choose.
+- **Your data stays yours.** Everything lives in one SQLite file. Import from ChatGPT and Open WebUI; export to JSON or Markdown.
+- Reasoning models, code highlighting, math, system-prompt presets, light and dark themes, mobile layout, installable as an app.
+- One account, protected by a password. API keys stay on the server.
 
-```sh
-docker build -t litechat .
-docker run -p 3000:3000 -v litechat:/data litechat
-```
+<table>
+  <tr>
+    <td><img src="docs/screenshots/providers.png" alt="Detected local servers in settings"></td>
+    <td><img src="docs/screenshots/search.png" alt="Search across chats"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/chat-dark.png" alt="Dark theme"></td>
+    <td align="center"><img src="docs/screenshots/mobile.png" alt="Mobile layout" width="240"></td>
+  </tr>
+</table>
 
-To reach Ollama on the host from Docker, use `http://host.docker.internal:11434/v1` (add `--add-host=host.docker.internal:host-gateway` on Linux).
+## Install
 
-## Search by meaning
+### Binary
 
-Settings → Search & data → pick an OpenAI-compatible provider and an embedding model
-(e.g. `nomic-embed-text` on Ollama: `ollama pull nomic-embed-text`). Every reply is
-embedded in the background together with its question and the chat title; vectors are
-stored in the same SQLite file and searched by brute-force cosine similarity, which stays
-fast up to tens of thousands of messages. Ctrl+K then shows "Related by meaning" results
-alongside exact matches. Switching models rebuilds the index.
-
-## Local server discovery
-
-Settings → Providers → **Detected servers** checks this machine's common AI ports
-(11434, 1234, 8080, 8000, 5000, 5001, 1337, 4891, 30000, 2242, 4000, 8001) and
-identifies each server by its own API (e.g. Ollama's `/api/version`, llama.cpp's
-`/props`, KoboldCpp's `/api/extra/version`), falling back to any server that
-answers `/v1/models`. Servers on other ports are recognised too once added. When
-liteChat runs in Docker, the Docker host is checked as well. **Scan network** probes
-the /24 around each of the machine's private addresses (physical interfaces only)
-and takes a couple of seconds; it only runs when you click it.
-
-## Tools (MCP)
-
-Settings → Tools. Remote servers need a URL (and optional headers such as
-`Authorization`). Local servers are a command plus arguments, e.g. `npx` with
-`-y`, `@modelcontextprotocol/server-filesystem`, `/srv/notes`; these require
-`LITECHAT_MCP_STDIO=1` and whatever runtime the server needs (Node, Python…) on the host.
-The minimal Docker image has no such runtimes, so use remote servers there or build on a
-fuller base image. Toggle tools per message with the **Tools** button in the composer.
-
-## Develop
+Download the archive for your platform from the [latest release](https://github.com/erinoooo/litechat/releases/latest), unpack it and run it:
 
 ```sh
-make dev        # Go backend on :3000 + Vite with hot reload on :5173 (open :5173)
-make test       # Go tests, frontend type-check, design-system lint
+tar xzf litechat_*_linux_amd64.tar.gz
+cd litechat_*_linux_amd64
+./litechat
 ```
 
-The UI follows a small design system: tokens in `web/src/app.css`, components in
-`web/src/lib/ui`, rules in [`web/DESIGN.md`](web/DESIGN.md), and a live reference at
-`/_ui`. `npm run lint:ui` (part of every build) rejects off-system styling.
+Open http://localhost:3000 and choose a password. Builds are available for Linux, macOS, Windows and FreeBSD on x86-64 and ARM.
 
-## Layout
+### Docker
 
-```
-main.go                 entrypoint; embeds web/dist
-internal/db             SQLite schema + queries (messages form a tree for branching)
-internal/llm            provider adapters (openai.go, anthropic.go): text stream + tool calls, embeddings
-internal/mcp            MCP client (Streamable HTTP + stdio) and connection manager
-internal/server         HTTP API, auth, background generation hub (hub.go, stream.go),
-                        tools loop, file extraction, import/export, semantic indexer
-web/src/lib             state (Svelte 5 runes), API client, markdown renderer
-web/src/lib/components  UI
+```sh
+docker run -d -p 3000:3000 -v litechat:/data --add-host=host.docker.internal:host-gateway \
+  ghcr.io/erinoooo/litechat:latest
 ```
 
-## Security notes
+Or use the included [`docker-compose.yml`](docker-compose.yml). The `--add-host` flag lets liteChat reach Ollama and other servers running on the host.
 
-- Behind a reverse proxy, terminate TLS there; cookies are marked `Secure` when `X-Forwarded-Proto: https` is set.
-- If you expose it publicly, keep in mind that provider base URLs and MCP server URLs are fetched by the server.
-- Only enable `LITECHAT_MCP_STDIO=1` if you trust everyone who knows the password: it lets the UI start processes on the host.
+### From source
+
+Needs Go 1.27+ and Node 24+.
+
+```sh
+git clone https://github.com/erinoooo/litechat && cd litechat
+make
+./litechat
+```
+
+## Quick start
+
+1. Start liteChat and open it in your browser.
+2. Set a password.
+3. Settings opens on **Providers**. If Ollama or another local server is running, it's listed under **Detected servers**: click **Add**. For a cloud provider, pick it under **Add manually** and paste your API key.
+4. Choose a model at the top and start typing.
+
+## Configuration
+
+| Flag | Environment variable | Default | |
+|---|---|---|---|
+| `-addr` | `LITECHAT_ADDR` | `:3000` | Address to listen on |
+| `-data` | `LITECHAT_DATA` | `./data` | Folder for the database |
+| | `LITECHAT_PASSWORD` | | Sets or resets the password at startup |
+| | `LITECHAT_MCP_STDIO` | | `1` allows local (command-based) MCP servers |
+| `-version` | | | Print the version and exit |
+
+Everything else is set in the app.
+
+## Documentation
+
+- [Providers and local server discovery](docs/providers.md)
+- [Tools (MCP)](docs/tools.md)
+- [Search, import and export](docs/search-and-data.md)
+- [Deploying: systemd, reverse proxies, Docker](docs/deployment.md)
+- [HTTP API](docs/api.md)
+- [Development and the design system](docs/development.md)
+
+## Status
+
+liteChat is young: it works well day to day, but expect rough edges, and back up your `data` folder. Bug reports and ideas are welcome in [issues](https://github.com/erinoooo/litechat/issues). See [CHANGELOG.md](CHANGELOG.md) for what's new.
+
+## License
+
+[MIT](LICENSE)
