@@ -7,10 +7,12 @@ import (
 	"flag"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -55,8 +57,13 @@ func main() {
 		log.Fatal(err)
 	}
 
+	listenPort := 0
+	if _, p, err := net.SplitHostPort(*addr); err == nil {
+		listenPort, _ = strconv.Atoi(p)
+	}
 	app := server.New(d, static, server.Options{
 		AllowStdioMCP: os.Getenv("LITECHAT_MCP_STDIO") == "1",
+		ListenPort:    listenPort,
 	})
 	defer app.Close()
 	srv := &http.Server{

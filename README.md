@@ -3,6 +3,7 @@
 A lightweight, self-hosted chat UI for LLMs. One ~15 MB Go binary, one SQLite file, no runtime dependencies, ~25 MB of RAM. Built for headless machines: run it anywhere, use it from any browser.
 
 - **Any provider**: anything OpenAI-compatible (Ollama, llama.cpp, LM Studio, vLLM, OpenRouter, Groq, OpenAI…) plus native Anthropic. Models are discovered automatically.
+- **Finds local servers for you**: Ollama, LM Studio, llama.cpp/llamafile, vLLM, KoboldCpp, SGLang, Text Generation WebUI, TabbyAPI, LiteLLM, Jan, GPT4All, LocalAI, MLX and any other OpenAI-compatible server on this machine are detected on their default ports and added with one click. A "Scan network" button checks the other computers on your LAN too.
 - **Streaming** with smooth incremental markdown, syntax highlighting, KaTeX math and collapsible "thinking" sections (highlighter and math load only when needed).
 - **Branching**: edit a message or regenerate a reply, then flip between versions.
 - **Replies run on the server**: close the tab, lock your phone or reload mid-answer; the reply keeps going and the UI re-attaches. Stop works from any device.
@@ -48,6 +49,17 @@ embedded in the background together with its question and the chat title; vector
 stored in the same SQLite file and searched by brute-force cosine similarity, which stays
 fast up to tens of thousands of messages. Ctrl+K then shows "Related by meaning" results
 alongside exact matches. Switching models rebuilds the index.
+
+## Local server discovery
+
+Settings → Providers → **Detected servers** checks this machine's common AI ports
+(11434, 1234, 8080, 8000, 5000, 5001, 1337, 4891, 30000, 2242, 4000, 8001) and
+identifies each server by its own API (e.g. Ollama's `/api/version`, llama.cpp's
+`/props`, KoboldCpp's `/api/extra/version`), falling back to any server that
+answers `/v1/models`. Servers on other ports are recognised too once added. When
+liteChat runs in Docker, the Docker host is checked as well. **Scan network** probes
+the /24 around each of the machine's private addresses (physical interfaces only)
+and takes a couple of seconds; it only runs when you click it.
 
 ## Tools (MCP)
 

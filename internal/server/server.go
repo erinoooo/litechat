@@ -22,6 +22,7 @@ type Server struct {
 	hub     *hub
 	mcp     *mcp.Manager
 	indexer *indexer
+	opt     Options
 
 	modelsMu    sync.Mutex
 	modelsCache map[string]modelsEntry // provider id -> cached models
@@ -32,6 +33,7 @@ type Server struct {
 
 type Options struct {
 	AllowStdioMCP bool // let MCP servers be launched as local processes
+	ListenPort    int  // our own port, skipped when discovering local servers
 }
 
 func New(d *db.DB, static fs.FS, opt Options) *Server {
@@ -40,6 +42,7 @@ func New(d *db.DB, static fs.FS, opt Options) *Server {
 		static:      static,
 		mux:         http.NewServeMux(),
 		hub:         newHub(),
+		opt:         opt,
 		mcp:         mcp.NewManager(opt.AllowStdioMCP),
 		modelsCache: map[string]modelsEntry{},
 		loginFail:   map[string][]time.Time{},
@@ -71,6 +74,7 @@ func (s *Server) routes() {
 	a("PUT /api/providers/{id}", s.saveProvider)
 	a("DELETE /api/providers/{id}", s.deleteProvider)
 	a("GET /api/models", s.listModels)
+	a("GET /api/discover", s.discoverServers)
 
 	a("GET /api/chats", s.listChats)
 	a("POST /api/chats", s.createChat)

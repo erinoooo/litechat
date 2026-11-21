@@ -4,6 +4,7 @@ import {
   streamMessage,
   setUnauthorizedHandler,
   type Chat,
+  type DiscoveredServer,
   type MCPServer,
   type MCPStatus,
   type Message,
@@ -104,6 +105,9 @@ class App {
   mcpServers = $state<MCPServer[]>([])
   mcpStatus = $state<MCPStatus>({})
   stdioAllowed = $state(false)
+  discovered = $state<DiscoveredServer[]>([])
+  discovering = $state<false | 'local' | 'network'>(false)
+  networkScanned = $state(false)
   searchOpen = $state(false)
   toast = $state<{ text: string; kind: 'info' | 'error' } | null>(null)
 
@@ -543,6 +547,39 @@ class App {
     const i = key.indexOf('/')
     // keys are "<provider>/<model>"; imported chats may carry a bare model name
     return i > 0 && /^[0-9a-f]{20,}$/.test(key.slice(0, i)) ? key.slice(i + 1) : key
+  }
+
+  /** Look for AI servers on this machine, or also on the local network. */
+  async discover(network = false) {
+    if (this.discovering) return
+    this.discovering = network ? 'network' : 'local'
+    try {
+      const r = await api.discover(network)
+      // keep LAN results from an earlier network scan when refreshing local ones
+      const lan = network ? [] : this.discovered.filter((s) => !s.local)
+      this.discovered = [...r.servers, ...lan.filter((l) => !r.servers.some((s) => s.base_url === l.base_url))]
+      if (network) this.networkScanned = true
+    } catch (e) {
+      this.notify((e as Error).message, 'error')
+    } finally {
+      this.discovering = false
+    }
+  }
+
+  /** Add a discovered server as a provider, with a name that's unique and says where it is. */
+  async addDiscovered(s: DiscoveredServer) {
+    const taken = new Set(this.providers.map((p) => p.name))
+    let name = s.local ? s.kind : `${s.kind} on ${s.host}`
+    if (taken.has(name)) name = `${name} (port ${s.port})`
+    try {
+      const p = await api.saveProvider({ name, kind: 'openai', base_url: s.base_url, api_key: '' })
+      this.providers = await api.providers()
+      s.provider_id = p.id
+      await this.loadModels(true)
+      this.notify(`${name} added`)
+    } catch (e) {
+      this.notify((e as Error).message, 'error')
+    }
   }
 
   async loadMCP(refresh = false) {

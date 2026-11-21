@@ -47,6 +47,17 @@ export type MCPServer = {
   env: Record<string, string>
   enabled: boolean
 }
+export type DiscoveredServer = {
+  kind: string
+  host: string
+  port: number
+  base_url: string
+  local: boolean
+  version?: string
+  models: string[]
+  provider_id?: string
+}
+
 export type MCPTool = { name: string; description: string }
 export type MCPStatus = Record<string, { tools: MCPTool[]; error?: string }>
 export type SemanticStatus = {
@@ -98,6 +109,8 @@ export const api = {
   saveProvider: (p: Partial<Provider> & { api_key?: string }, id?: string) =>
     req<Provider>(id ? 'PUT' : 'POST', id ? `/providers/${id}` : '/providers', p),
   deleteProvider: (id: string) => req('DELETE', `/providers/${id}`),
+  discover: (network = false) =>
+    req<{ servers: DiscoveredServer[]; scanned: number; took_ms: number; network: boolean }>('GET', '/discover' + (network ? '?network=1' : '')),
   models: (refresh = false) =>
     req<{ models: Model[]; errors: Record<string, string> }>('GET', '/models' + (refresh ? '?refresh=1' : '')),
 

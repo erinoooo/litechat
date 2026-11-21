@@ -1,7 +1,25 @@
 <script lang="ts">
-  import { api, type Provider } from '../api'
+  import { onMount } from 'svelte'
+  import { api, type DiscoveredServer, type Provider } from '../api'
   import { app } from '../state.svelte'
-  import { Button, IconButton, List, ListRow, PageHeader, Section, Select, StatusDot, Switch, TextField } from '../ui'
+  import { Badge, Button, IconButton, List, ListRow, PageHeader, Section, Select, Spinner, StatusDot, Switch, TextField } from '../ui'
+
+  onMount(() => app.discover())
+
+  let adding = $state<string | null>(null)
+  async function addFound(s: DiscoveredServer) {
+    adding = s.base_url
+    await app.addDiscovered(s)
+    adding = null
+  }
+
+  function where(s: DiscoveredServer) {
+    const addr = `${s.host}:${s.port}`
+    if (!s.models.length) return `${addr}, no models loaded`
+    const shown = s.models.slice(0, 3).join(', ')
+    const more = s.models.length > 3 ? ` and ${s.models.length - 3} more` : ''
+    return `${addr}, ${shown}${more}`
+  }
 
   const templates = [
     { name: 'Ollama', kind: 'openai', base_url: 'http://localhost:11434/v1', note: 'Local, no key' },
@@ -55,6 +73,7 @@
     await api.deleteProvider(p.id)
     app.providers = await api.providers()
     app.loadModels(true)
+    app.discover()
   }
 
   const count = (id: string) => app.models.filter((m) => m.provider_id === id).length
@@ -98,7 +117,43 @@
     </Section>
   {/if}
 
-  <Section title="Add a provider">
+  <Section title="Detected servers" description={app.networkScanned ? 'AI servers running on this machine and your local network.' : 'AI servers running on this machine. Scan your network to find ones on other computers.'}>
+    {#snippet actions()}
+      <IconButton icon="refresh" label="Check this machine again" spin={app.discovering === 'local'} disabled={!!app.discovering} onclick={() => app.discover()} />
+      <Button size="sm" icon="search" disabled={!!app.discovering} onclick={() => app.discover(true)}>
+        {app.discovering === 'network' ? 'Scanning network' : 'Scan network'}
+      </Button>
+    {/snippet}
+    {#if app.discovered.length}
+      <List>
+        {#each app.discovered as s (s.base_url)}
+          <ListRow title={s.local ? s.kind : `${s.kind} on ${s.host}`} subtitle={where(s)}>
+            {#snippet leading()}<StatusDot status="ok" label="Running" />{/snippet}
+            {#snippet trailing()}
+              {#if s.provider_id}
+                <Badge>Added</Badge>
+              {:else}
+                <Button size="sm" icon="plus" disabled={adding === s.base_url} onclick={() => addFound(s)}>Add</Button>
+              {/if}
+            {/snippet}
+          </ListRow>
+        {/each}
+      </List>
+    {:else if app.discovering}
+      <p class="flex items-center gap-2 text-sm text-ink-3">
+        <Spinner size={12} />{app.discovering === 'network' ? 'Scanning your network. This takes a few seconds.' : 'Looking for servers on this machine'}
+      </p>
+    {:else}
+      <p class="text-sm text-ink-3">
+        No servers found{app.networkScanned ? '' : ' on this machine'}. Start Ollama, LM Studio, llama.cpp or another local server, or add one below.
+      </p>
+    {/if}
+    {#if app.discovering === 'network' && app.discovered.length}
+      <p class="mt-3 flex items-center gap-2 text-sm text-ink-3"><Spinner size={12} />Scanning your network</p>
+    {/if}
+  </Section>
+
+  <Section title="Add manually">
     <List>
       {#each templates as t (t.name)}
         <ListRow title={t.name} subtitle={t.note}>

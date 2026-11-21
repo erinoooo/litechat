@@ -20,8 +20,10 @@
     return [...g.entries()]
   })
   const errors = $derived(Object.entries(app.modelErrors))
+  const detected = $derived(app.discovered.filter((d) => !d.provider_id && d.models.length))
 
   function onopen() {
+    if (!app.models.length) app.discover()
     q = ''
     active = Math.max(0, filtered.findIndex((m) => m.key === current))
     queueMicrotask(() => document.querySelector('[role=menu] [data-active]')?.scrollIntoView({ block: 'nearest' }))
@@ -59,7 +61,15 @@
       {/each}
     </MenuGroup>
   {:else}
-    <p class="px-2.5 py-6 text-sm text-ink-3">{app.models.length ? 'No models match.' : 'No models yet. Add a provider to get started.'}</p>
+    {#if !app.models.length && detected.length}
+      <MenuGroup label="Detected on this machine">
+        {#each detected as d (d.base_url)}
+          <MenuItem icon="plus" label="Add {d.kind}" detail="{d.host}:{d.port}, {d.models.length} model{d.models.length === 1 ? '' : 's'}" onclick={() => { open = false; app.addDiscovered(d) }} />
+        {/each}
+      </MenuGroup>
+    {:else}
+      <p class="px-2.5 py-6 text-sm text-ink-3">{app.models.length ? 'No models match.' : 'No models yet. Add a provider to get started.'}</p>
+    {/if}
   {/each}
   {#each errors as [pid, err]}
     <div class="mt-1"><Notice tone="error">{app.providers.find((p) => p.id === pid)?.name ?? 'A provider'} didn't respond: {err}</Notice></div>
