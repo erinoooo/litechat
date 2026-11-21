@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
 	"net"
@@ -23,6 +24,9 @@ import (
 //go:embed all:web/dist
 var webDist embed.FS
 
+// version is set at build time: -ldflags "-X main.version=v0.1.0"
+var version = "dev"
+
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -33,7 +37,12 @@ func env(key, def string) string {
 func main() {
 	addr := flag.String("addr", env("LITECHAT_ADDR", ":3000"), "listen address")
 	dataDir := flag.String("data", env("LITECHAT_DATA", "./data"), "data directory")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println("litechat", version)
+		return
+	}
 
 	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
 		log.Fatal(err)
@@ -72,7 +81,7 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
-		log.Printf("liteChat listening on %s", *addr)
+		log.Printf("liteChat %s listening on %s", version, *addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}

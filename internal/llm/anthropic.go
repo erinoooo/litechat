@@ -138,6 +138,7 @@ func (a *anthropic) Stream(ctx context.Context, r Request, onDelta func(string))
 
 	tw := &thinkWrapper{emit: onDelta}
 	calls := map[int]*ToolCall{}
+	truncated := false
 	err = sseData(resp.Body, func(event, data string) (bool, error) {
 		var ev struct {
 			Type         string `json:"type"`
@@ -152,6 +153,7 @@ func (a *anthropic) Stream(ctx context.Context, r Request, onDelta func(string))
 				Text        string `json:"text"`
 				Thinking    string `json:"thinking"`
 				PartialJSON string `json:"partial_json"`
+				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
 			Error *struct {
 				Message string `json:"message"`
@@ -176,6 +178,10 @@ func (a *anthropic) Stream(ctx context.Context, r Request, onDelta func(string))
 					c.Args += ev.Delta.PartialJSON
 				}
 			}
+		case "message_delta":
+			if ev.Delta.StopReason == "max_tokens" || ev.Delta.StopReason == "model_context_window_exceeded" {
+				truncated = true
+			}
 		case "message_stop":
 			return true, nil
 		case "error":
@@ -187,7 +193,7 @@ func (a *anthropic) Stream(ctx context.Context, r Request, onDelta func(string))
 	})
 	tw.close()
 
-	var res Result
+	res := Result{Truncated: truncated}
 	idx := make([]int, 0, len(calls))
 	for i := range calls {
 		idx = append(idx, i)

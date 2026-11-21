@@ -1,5 +1,6 @@
 GO ?= go
 BIN := litechat
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: all web build dev run test clean
 
@@ -10,7 +11,7 @@ web:
 
 # single static binary with the frontend embedded
 build: web
-	CGO_ENABLED=0 $(GO) build -trimpath -ldflags="-s -w" -o $(BIN) .
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o $(BIN) .
 
 # backend on :3000 + Vite dev server (with HMR) on :5173
 dev:

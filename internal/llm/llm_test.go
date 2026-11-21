@@ -118,3 +118,36 @@ func TestOpenAIStreamToolCalls(t *testing.T) {
 		t.Errorf("tool message wrong: %v", m)
 	}
 }
+
+func TestStreamReportsTruncation(t *testing.T) {
+	cases := map[string]struct {
+		kind   string
+		events []string
+	}{
+		"openai": {"openai", []string{
+			`data: {"choices":[{"delta":{"reasoning":"long thought"}}]}`,
+			`data: {"choices":[{"delta":{},"finish_reason":"length"}]}`,
+			`data: [DONE]`,
+		}},
+		"anthropic": {"anthropic", []string{
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}`,
+			`data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}`,
+			`data: {"type":"message_stop"}`,
+		}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				for _, e := range c.events {
+					fmt.Fprintf(w, "%s\n\n", e)
+				}
+			}))
+			defer srv.Close()
+			cl, _ := New(c.kind, srv.URL, "k")
+			res, err := cl.Stream(context.Background(), Request{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}}, func(string) {})
+			if err != nil || !res.Truncated {
+				t.Fatalf("truncated = %v, err = %v", res.Truncated, err)
+			}
+		})
+	}
+}

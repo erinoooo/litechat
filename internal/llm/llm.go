@@ -50,6 +50,9 @@ type Request struct {
 
 type Result struct {
 	ToolCalls []ToolCall
+	// Truncated is set when the model stopped because it ran out of
+	// output or context length, rather than finishing its answer.
+	Truncated bool
 }
 
 type Client interface {

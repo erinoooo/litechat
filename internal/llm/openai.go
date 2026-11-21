@@ -168,6 +168,7 @@ func (o *openAI) Stream(ctx context.Context, r Request, onDelta func(string)) (R
 
 	tw := &thinkWrapper{emit: onDelta}
 	calls := map[int]*ToolCall{}
+	truncated := false
 	err = sseData(resp.Body, func(_, data string) (bool, error) {
 		if data == "[DONE]" {
 			return true, nil
@@ -184,6 +185,7 @@ func (o *openAI) Stream(ctx context.Context, r Request, onDelta func(string)) (R
 						Function oaFunc `json:"function"`
 					} `json:"tool_calls"`
 				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 			Error *struct {
 				Message string `json:"message"`
@@ -196,6 +198,9 @@ func (o *openAI) Stream(ctx context.Context, r Request, onDelta func(string)) (R
 			return true, &providerErr{chunk.Error.Message}
 		}
 		for _, c := range chunk.Choices {
+			if c.FinishReason == "length" {
+				truncated = true
+			}
 			tw.reasoning(c.Delta.ReasoningContent)
 			tw.reasoning(c.Delta.Reasoning)
 			tw.text(c.Delta.Content)
@@ -216,7 +221,7 @@ func (o *openAI) Stream(ctx context.Context, r Request, onDelta func(string)) (R
 	})
 	tw.close()
 
-	var res Result
+	res := Result{Truncated: truncated}
 	idx := make([]int, 0, len(calls))
 	for i := range calls {
 		idx = append(idx, i)

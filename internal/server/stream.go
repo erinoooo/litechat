@@ -191,6 +191,7 @@ func (s *Server) generate(ctx context.Context, g *generation, chat db.Chat, clie
 
 	req := llm.Request{Model: modelID, System: chat.SystemPrompt, Messages: history, Tools: llmTools}
 	var streamErr error
+	truncated := false
 	for round := 0; ; round++ {
 		var roundText strings.Builder
 		res, err := client.Stream(ctx, req, func(t string) {
@@ -200,6 +201,9 @@ func (s *Server) generate(ctx context.Context, g *generation, chat db.Chat, clie
 		if err != nil {
 			streamErr = err
 			break
+		}
+		if res.Truncated {
+			truncated = true
 		}
 		if len(res.ToolCalls) == 0 {
 			break
@@ -228,9 +232,12 @@ func (s *Server) generate(ctx context.Context, g *generation, chat db.Chat, clie
 
 	content := strings.TrimRight(g.text(), "\n")
 	errText := ""
-	if streamErr != nil && !errors.Is(streamErr, context.Canceled) {
+	switch {
+	case streamErr != nil && !errors.Is(streamErr, context.Canceled):
 		errText = streamErr.Error()
 		log.Printf("stream error (%s): %v", modelID, streamErr)
+	case truncated:
+		errText = truncatedMsg(content)
 	}
 	if err := s.db.FinishMessage(g.msgID, content, errText); err != nil {
 		log.Printf("save reply: %v", err)
@@ -240,25 +247,38 @@ func (s *Server) generate(ctx context.Context, g *generation, chat db.Chat, clie
 		done["error"] = errText
 	}
 	g.publish(event{"done", done})
+	// the chat is free again now, even while the title is still being written
+	s.hub.finish(g)
 	s.indexer.kick()
 
-	// title the chat after its first exchange
+	// title the chat after its first exchange: a quick one from the question
+	// right away, then the model's own title if it writes one in time
 	if chat.Title == "New chat" && errText == "" && content != "" {
-		_, p := s.loadPrefs()
-		title := ""
-		if p.AutoTitle == nil || *p.AutoTitle {
-			tctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			title = s.generateTitle(tctx, client, modelID, question, content)
+		setTitle := func(t string) {
+			_ = s.db.UpdateChat(chat.ID, map[string]any{"title": t}, false)
+			g.publish(event{"title", map[string]string{"title": t}})
+		}
+		if t := fallbackTitle(question); t != "" {
+			setTitle(t)
+		}
+		if _, p := s.loadPrefs(); p.AutoTitle == nil || *p.AutoTitle {
+			tctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			t := s.generateTitle(tctx, client, modelID, question, content)
 			cancel()
-		}
-		if title == "" {
-			title = fallbackTitle(question)
-		}
-		if title != "" {
-			_ = s.db.UpdateChat(chat.ID, map[string]any{"title": title}, false)
-			g.publish(event{"title", map[string]string{"title": title}})
+			if t != "" {
+				setTitle(t)
+			}
 		}
 	}
+}
+
+// truncatedMsg explains a reply that hit the model's length limit.
+func truncatedMsg(content string) string {
+	msg := "The model hit its length limit before finishing."
+	if stripThink(content) == "" {
+		msg = "The model used its whole length limit on reasoning and never got to the answer."
+	}
+	return msg + " Try again, ask for a shorter answer, or raise the model's context size (for Ollama, set OLLAMA_CONTEXT_LENGTH, e.g. 16384)."
 }
 
 // runTool executes one tool call and appends a <tool> block to the reply.
