@@ -16,7 +16,7 @@ liteChat keeps the parts people use every day and drops the rest:
 
 |  | liteChat |
 |---|---|
-| Install | One static binary, or a ~15 MB Docker image |
+| Install | One static binary (~6 MB download), or a ~22 MB Docker image |
 | Runtime | No Python, no Node, no external database |
 | Memory | ~25 MB at idle |
 | First page load | ~80 KB of JavaScript (gzipped); code highlighting and math load on demand |
